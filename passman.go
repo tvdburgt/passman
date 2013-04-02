@@ -1,6 +1,5 @@
 
 
-
 package main
 
 import (
@@ -61,8 +60,11 @@ func getSalt() ([]byte, error) {
 
 func deriveKey(passphrase, salt []byte) (encKey, macKey []byte, err error) {
 	key, err := scrypt.Key(passphrase, salt, 16384, 8, 1, 64)
-	encKey = key[:keySize]
-	macKey = key[keySize:]
+
+	if err != nil {
+		encKey = key[:keySize]
+		macKey = key[keySize:]
+	}
 	return
 }
 
