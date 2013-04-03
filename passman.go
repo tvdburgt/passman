@@ -1,16 +1,19 @@
-
-
 package main
 
 import (
 	"fmt"
 	"encoding/json"
 	"os"
+	"os/user"
 	"crypto/aes"
 	"crypto/rand"
+	"path"
+	/* "bytes" */
 	/* "crypto/sha512" */
 	"crypto/cipher"
 	"code.google.com/p/go.crypto/scrypt"
+	/* "github.com/howeyc/gopass" */
+	/* "code.google.com/p/go.crypto/ssh/terminal" */
 	"io"
 )
 
@@ -30,6 +33,9 @@ const (
 	fileVersion uint8 = 0
 )
 
+
+var entries map[string]Entry
+
 /* type Header struct { */
 /* 	Salt string */
 /* 	Key string */
@@ -39,8 +45,8 @@ const (
 
 type Entry struct {
 	/* Id string */
-	Name string
-	Password string
+	Name string `json:"name"`
+	Password string `json:"password"`
 }
 
 // return []byte, or use ref param
@@ -61,21 +67,90 @@ func getSalt() ([]byte, error) {
 func deriveKey(passphrase, salt []byte) (encKey, macKey []byte, err error) {
 	key, err := scrypt.Key(passphrase, salt, 16384, 8, 1, 64)
 
+	// useful?
 	if err != nil {
 		encKey = key[:keySize]
 		macKey = key[keySize:]
 	}
+
 	return
+}
+
+func export() {
+	content, err := json.MarshalIndent(entries, "", "  ")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return
+	}
+
+	fmt.Printf("%s\n", content)
+}
+
+func initt() {
+	usr, err := user.Current()
+	filename := path.Join(usr.HomeDir, ".passstore")
+	/* var pass1, pass2 string */
+
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return
+	}
+
+	fmt.Printf("Pass store location [%s]: ", filename)
+	fmt.Scanln(&filename)
+
+	/* fd := os.Stdin.Fd() */
+
+	/* for { */
+
+	/* 	fmt.Print("Passphrase: ") */
+	/* 	pass1 := gopass.GetPasswd() */
+	/* 	fmt.Print("Passphrase verification: ") */
+	/* 	pass2 := gopass.GetPasswd() */
+
+	/* 	if bytes.Equal(pass1, pass2) { break } */
+
+	/* 	fmt.Println("Passphrases don't match, try again.") */
+	/* } */
+
+	/* pass := []byte("foobarbazqux") */
+	/* salt, _ := getSalt() */
+
+	/* fmt.Printf("%s\n", pass) */
+	/* clear(pass) */
+	/* fmt.Printf("%s\n", pass) */
+}
+
+// https://groups.google.com/forum/?fromgroups=#!topic/golang-nuts/sKQtvluD_So
+// https://groups.google.com/forum/#!msg/golang-nuts/KvgjNbCXTY4/uigWOtc6bJcJ
+func clear(plaintext []byte) {
+	for i := range plaintext {
+		plaintext[i] = 0
+	}
 }
 
 func main() {
 
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "missing file param")
+		fmt.Println("usage: passman command [pass store]")
 		return
 	}
 
-	filename := os.Args[1]
+	entries = make(map[string]Entry)
+	entries["gmail"] = Entry{"foo@gmail.com", "somecrappypassword"}
+	entries["tweakers.net"] = Entry{"noobie", "anothershittypassword"}
+
+	switch os.Args[1] {
+	case "init":
+		initt()
+	case "export":
+		export()
+	}
+
+	/* filename := os.Args[1] */
+
+	usr, err := user.Current()
+	filename := path.Join(usr.HomeDir, ".passstore")
 
 	f, err := os.Create(filename)
 	if err != nil {
@@ -113,13 +188,9 @@ func main() {
 	writer.Write([]byte(fileSignature))
 	writer.Write([]byte{fileVersion})
 
-	entries := make(map[string]Entry)
 
-	entries["gmail"] = Entry{"foo@gmail.com", "somecrappypassword"}
-	entries["tweakers.net"] = Entry{"noobie", "anothershittypassword"}
+	/* content, _ := json.Marshal(entries) */
 
-	content, _ := json.Marshal(entries)
-
-	fmt.Printf("%s\n", content)
-	writer.Write(content)
+	/* fmt.Printf("%s\n", content) */
+	/* writer.Write(content) */
 }
