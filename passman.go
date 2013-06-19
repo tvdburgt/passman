@@ -1,196 +1,228 @@
+// Copright (c) 2013 Tijmen van der Burgt
+// Use of this source code is governed by the MIT license,
+// that can be found in the LICENSE file.
+
 package main
 
 import (
+	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"errors"
 	"fmt"
-	"encoding/json"
+	"github.com/howeyc/gopass"
 	"os"
 	"os/user"
-	"crypto/aes"
-	"crypto/rand"
 	"path"
-	/* "bytes" */
-	/* "crypto/sha512" */
-	"crypto/cipher"
-	"code.google.com/p/go.crypto/scrypt"
-	/* "github.com/howeyc/gopass" */
-	/* "code.google.com/p/go.crypto/ssh/terminal" */
-	"io"
+	"time"
 )
 
-/*
-Offset		Size		Description
----------------------------------------------------------
-0		32		Salt
-32		7		File signature
-39		1		File format version
-40		x		Data
-40+x		32		HMAC-SHA256(0 .. x-32)
-*/
+// TODO: clear derived keys etc.
 
 const (
-	keySize = 32
-	fileSignature = "passman" // 0x706173736d616e
-	fileVersion uint8 = 0
+	fileVersion    = 0x00
+	filePermission = 0600
 )
 
+var (
+	// 0x706173736d616e == "passman"
+	fileSignature    = []byte{0x70, 0x61, 0x73, 0x73, 0x6d, 0x61, 0x6e}
+	defaultStorePath string
+)
 
-var entries map[string]Entry
-
-/* type Header struct { */
-/* 	Salt string */
-/* 	Key string */
-/* 	Checksum string // TODO: crc, md5 or sha? */
-/* 	entryCount string */
-/* } */
-
-type Entry struct {
-	/* Id string */
-	Name string `json:"name"`
-	Password string `json:"password"`
+func init() {
+	u, err := user.Current()
+	if err != nil {
+		panic(err)
+	}
+	defaultStorePath = path.Join(u.HomeDir, ".passstore")
 }
 
-// return []byte, or use ref param
-// handle error in method, or return error?
-func getSalt() ([]byte, error) {
-	salt := make([]byte, keySize)
-	n, err := io.ReadFull(rand.Reader, salt)
+func readPassphrase(prompt string) []byte {
+	fmt.Printf("%s ", prompt)
+	return gopass.GetPasswd()
+}
 
-	// Reader.Read always returns an error when insufficient bytes are
-	// available?
-	if n != keySize || err != nil {
+func readVerifiedPassphrase() []byte {
+	for {
+		pass1 := readPassphrase("Passphrase:")
+		pass2 := readPassphrase("Passphrase verification:")
+
+		if bytes.Equal(pass1, pass2) {
+			clear(pass2)
+			return pass1
+		}
+
+		clear(pass1, pass2)
+	}
+}
+
+func initStore() error {
+
+	filename := defaultStorePath
+
+	// Read store path
+	fmt.Printf("Store location [%s]: ", filename)
+	fmt.Scanln(&filename)
+
+	// Read passphrase
+	passphrase := readVerifiedPassphrase()
+	defer clear(passphrase)
+
+	salt, err := generateRandomSalt()
+	if err != nil {
+		return err
+	}
+
+	cipherKey, hmacKey, err := deriveKeys(passphrase, salt)
+	if err != nil {
+		return err
+	}
+
+	header := Header{Signature: fileSignature, Version: fileVersion, Salt: salt}
+
+	store := NewStore(header)
+	store.Entries["tweakers"] = Entry{"cafaro", "jeweetzelf", time.Now().Unix()}
+	store.Entries["google"] = Entry{"tvdburgt@gmail.com", "badpasswdtbh", time.Now().Unix()}
+
+	// TODO: check if file already exists!
+	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, filePermission)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	stream, err := initStreamCipher(cipherKey)
+	if err != nil {
+		return err
+	}
+	mac := hmac.New(sha256.New, hmacKey)
+	fmt.Printf("hmacKey=%x\n", hmacKey)
+
+	return store.Serialize(file, stream, mac)
+}
+
+func readStore(filename string) (*Store, error) {
+
+	passphrase := readPassphrase("Passphrase:")
+	_ = passphrase
+
+	f, err := os.OpenFile(filename, os.O_RDONLY, filePermission)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	// Get file info with stat
+	fi, err := f.Stat()
+	if err != nil {
 		return nil, err
 	}
 
-	return salt, nil
-}
+	s := new(Store)
 
-func deriveKey(passphrase, salt []byte) (encKey, macKey []byte, err error) {
-	key, err := scrypt.Key(passphrase, salt, 16384, 8, 1, 64)
+	if err := s.Header.Deserialize(f); err != nil {
+		return nil, err
+	}
 
-	// useful?
+	cipherKey, hmacKey, err := deriveKeys(passphrase, s.Header.Salt)
 	if err != nil {
-		encKey = key[:keySize]
-		macKey = key[keySize:]
+		return nil, err
 	}
 
-	return
-}
-
-func export() {
-	content, err := json.MarshalIndent(entries, "", "  ")
+	stream, err := initStreamCipher(cipherKey)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return
+		return nil, err
+	}
+	mac := hmac.New(sha256.New, hmacKey)
+
+	// Verify header HMAC
+	mac.Write(s.Header.Data[:40])
+	if !hmac.Equal(s.Header.HMAC, mac.Sum(nil)) {
+		return nil, errors.New("invalid passphrase, try again")
 	}
 
-	fmt.Printf("%s\n", content)
+	mac.Write(s.Header.HMAC)
+
+	if err := s.Deserialize(f, int(fi.Size()), stream, mac); err != nil {
+		return nil, err
+	}
+
+	return s, nil
 }
 
-func initt() {
-	usr, err := user.Current()
-	filename := path.Join(usr.HomeDir, ".passstore")
-	/* var pass1, pass2 string */
-
+func export() error {
+	s, err := readStore("/home/tman/.passstore")
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return
+		return err
 	}
 
-	fmt.Printf("Pass store location [%s]: ", filename)
-	fmt.Scanln(&filename)
+	if err := s.Export(os.Stdout); err != nil {
+		return err
+	}
 
-	/* fd := os.Stdin.Fd() */
-
-	/* for { */
-
-	/* 	fmt.Print("Passphrase: ") */
-	/* 	pass1 := gopass.GetPasswd() */
-	/* 	fmt.Print("Passphrase verification: ") */
-	/* 	pass2 := gopass.GetPasswd() */
-
-	/* 	if bytes.Equal(pass1, pass2) { break } */
-
-	/* 	fmt.Println("Passphrases don't match, try again.") */
-	/* } */
-
-	/* pass := []byte("foobarbazqux") */
-	/* salt, _ := getSalt() */
-
-	/* fmt.Printf("%s\n", pass) */
-	/* clear(pass) */
-	/* fmt.Printf("%s\n", pass) */
+	return nil
 }
 
-// https://groups.google.com/forum/?fromgroups=#!topic/golang-nuts/sKQtvluD_So
-// https://groups.google.com/forum/#!msg/golang-nuts/KvgjNbCXTY4/uigWOtc6bJcJ
-func clear(plaintext []byte) {
-	for i := range plaintext {
-		plaintext[i] = 0
+func set() error {
+	s, err := readStore("/home/tman/.passstore")
+	if err != nil {
+		return err
 	}
+
+	if len(os.Args) < 3 {
+		return errors.New("not enough args")
+	}
+
+	e := Entry{Password: "defaultpass", Name: "defaultname"}
+	id := os.Args[2]
+
+	s.Set(id, e)
+
+	return nil
 }
 
 func main() {
+
+	var err error
 
 	if len(os.Args) < 2 {
 		fmt.Println("usage: passman command [pass store]")
 		return
 	}
 
-	entries = make(map[string]Entry)
-	entries["gmail"] = Entry{"foo@gmail.com", "somecrappypassword"}
-	entries["tweakers.net"] = Entry{"noobie", "anothershittypassword"}
-
 	switch os.Args[1] {
 	case "init":
-		initt()
+		err = initStore()
+	case "list":
+		var s *Store
+		s, err = readStore("/home/tman/.passstore")
+		/* pass := []byte("") */
+		/* s, err = NewStore("/home/tman/.passstore", os.O_RDONLY, pass) */
+		if err == nil {
+			fmt.Println(s.Entries)
+			s.Print()
+		}
+	case "add":
+		/* if len(os.Args) > 3 { */
+		/* 	pass := readPass("Passphrase:") */
+		/* 	s, err = NewStore("/home/tman/.passstore", os.O_RDWR, pass) */
+		/* 	if err != nil { */
+		/* 		fmt.Println("caught error", err) */
+		/* 		break */
+		/* 	} */
+		/* 	err = add(s, os.Args[2], os.Args[3]) */
+		/* } */
 	case "export":
-		export()
+		err = export()
+	case "gen":
+		gen()
+	case "set":
+		err = set()
 	}
 
-	/* filename := os.Args[1] */
-
-	usr, err := user.Current()
-	filename := path.Join(usr.HomeDir, ".passstore")
-
-	f, err := os.Create(filename)
 	if err != nil {
+		fmt.Println("error!")
 		fmt.Fprintln(os.Stderr, err)
-		return
 	}
-	defer f.Close()
-
-	salt, err := getSalt()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return
-	}
-
-	f.Write(salt)
-
-	var pass []byte
-	/* fmt.Print("passphrase: ") */
-	/* fmt.Scan(&pass) */
-	pass = []byte("testje")
-
-	/* fmt.Printf("%s %d : %#x\nenc %d : %x\nmac %d : %x\n", */
-	/* pass, len(key), key, */
-	/* len(encKey), encKey, */
-	/* len(macKey), macKey) */
-
-	encKey, _, err := deriveKey(pass, salt)
-
-	block, _ := aes.NewCipher(encKey)
-	iv := make([]byte, block.BlockSize())
-	stream := cipher.NewCTR(block, iv)
-
-	writer := &cipher.StreamWriter{stream, f, nil} // add err?
-
-	writer.Write([]byte(fileSignature))
-	writer.Write([]byte{fileVersion})
-
-
-	/* content, _ := json.Marshal(entries) */
-
-	/* fmt.Printf("%s\n", content) */
-	/* writer.Write(content) */
 }
