@@ -5,13 +5,16 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	_ "fmt"
+	"crypto/sha256"
+	"crypto/hmac"
+	"hash"
 	"io"
 )
 
-const keySize = 32
+const keySize = 32 // 256-bit key for AES-256
+var macHash = sha256.New // Use SHA-256 as HMAC
 
-// Generates a cryptocraphically secure salt, with length equal to key size.
+// Generates a cryptographically secure salt with length equal to key size.
 func generateRandomSalt() ([]byte, error) {
 	salt := make([]byte, keySize)
 	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
@@ -31,7 +34,7 @@ func deriveKeys(passphrase, salt []byte) (cipherKey, hmacKey []byte, err error) 
 	return
 }
 
-func initStreamCipher(key []byte) (cipher.Stream, error) {
+func initCTRStream(key []byte) (cipher.Stream, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
@@ -40,11 +43,26 @@ func initStreamCipher(key []byte) (cipher.Stream, error) {
 	return cipher.NewCTR(block, iv), nil
 }
 
+func initStreamParams(passphrase, salt []byte) (stream cipher.Stream, mac hash.Hash, err error) {
+	cipherKey, hmacKey, err := deriveKeys(passphrase, salt)
+	if err != nil {
+		return
+	}
+	defer clear(cipherKey, hmacKey)
+
+	if stream, err = initCTRStream(cipherKey); err != nil {
+		return
+	}
+
+	mac = hmac.New(macHash, hmacKey)
+	return
+}
+
+// Clears sensitive data from memory (useful for plaintext passwords etc.)
 // https://groups.google.com/forum/?fromgroups=#!topic/golang-nuts/sKQtvluD_So
 // https://groups.google.com/forum/#!msg/golang-nuts/KvgjNbCXTY4/uigWOtc6bJcJ
 func clear(s ...[]byte) {
 	for _, secret := range s {
-		/* fmt.Printf("clearing '%s'\n", secret) */
 		for i := range secret {
 			secret[i] = 0
 		}

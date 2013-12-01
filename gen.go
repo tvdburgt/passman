@@ -20,8 +20,9 @@ func gen() {
 	flag.Parse()
 
 	charSet := buildCharSet(*lower, *upper, *digit)
+	var i uint
 
-	for i := uint(0); i < *n; i++ {
+	for i = 0; i < *n; i++ {
 		pass, err := passgen.Generate(int(*size), charSet)
 		if err != nil {
 			fmt.Println(err)

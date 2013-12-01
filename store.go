@@ -1,14 +1,3 @@
-/*
- * Offset	Size		Description
- * ---------------------------------------------------------
- * 0		7		File signature
- * 7		1		File format version
- * 8		32		Salt
- * 40		32		HMAC-SHA256(0..32)
- -----------------------------------------------------------
- * 72		n		Encrypted content
- * 72+n		32		HMAC-SHA256(0..n-32)
-*/
 
 package main
 
@@ -21,16 +10,34 @@ import (
 	"fmt"
 	"hash"
 	"io"
-	"os"
+	"sort"
 	"text/tabwriter"
+	"unsafe"
 )
 
+const fileVersion = 0x00
+
+var fileSignature = [7]byte{0x6e, 0x50, 0x41, 0x53, 0x4d, 0x41, 0x4e}
+//var fileSignature = []byte("passman")
+
+/* File format
+ * ---------------------------------------------------------
+ * Offset	Size		Description
+ * ---------------------------------------------------------
+ * 0		7		File signature / magic number
+ * 7		1		File format version
+ * 8		32		Salt
+ * 40		32		HMAC-SHA256(0 .. 32)
+ -----------------------------------------------------------
+ * 72		n		Encrypted data
+ * 72+n		32		HMAC-SHA256(0 .. 72 + (n - 1))
+*/
+
 type Header struct {
-	Data      []byte `json:"-"`
-	Signature []byte `json:"-"`
-	Version   byte
-	Salt      []byte `json:"-"`
-	HMAC      []byte `json:"-"`
+	Signature [7]byte  `json:"-"`
+	Version   byte     `json:"version"`
+	Salt      [32]byte `json:"-"`
+	HMAC      [32]byte `json:"-"`
 }
 
 type Entry struct {
@@ -46,55 +53,36 @@ type Store struct {
 	Entries map[string]Entry `json:"entries"`
 }
 
-func NewStore(header Header) *Store {
-	entries := make(map[string]Entry)
-	return &Store{header, entries}
+func NewHeader() *Header {
+	return &Header{Version: fileVersion, Signature: fileSignature}
+}
+
+func NewStore(header *Header) *Store {
+	// required to make map?
+	return &Store{*header, make(map[string]Entry)}
+}
+
+func (h *Header) Size() int {
+	return int(unsafe.Sizeof(*h))
 }
 
 func (h *Header) Serialize(out io.Writer, mac hash.Hash) error {
-	fields := [][]byte{
-		h.Signature,
-		[]byte{h.Version},
-		h.Salt,
-	}
+	buf := new(bytes.Buffer)
+	buf.Write(h.Signature[:])
+	buf.WriteByte(h.Version)
+	buf.Write(h.Salt[:])
 
-	// Write data
-	if _, err := out.Write(bytes.Join(fields, nil)); err != nil {
+	if _, err := buf.WriteTo(out); err != nil {
 		return err
 	}
+
+	// fmt.Printf("salt=%x\n", h.Salt)
+	// fmt.Printf("h_hmac=%x\n", mac.Sum(nil))
 
 	// Write HMAC
 	if _, err := out.Write(mac.Sum(nil)); err != nil {
 		return err
 	}
-
-	fields = append(fields, mac.Sum(nil))
-
-	return nil
-}
-
-func (h *Header) Deserialize(in io.Reader) error {
-	h.Data = make([]byte, 72)
-	if _, err := in.Read(h.Data); err != nil {
-		return err
-	}
-
-	h.Signature = h.Data[:7]
-	h.Version = h.Data[7]
-	h.Salt = h.Data[8:40]
-	h.HMAC = h.Data[40:72]
-
-	if !bytes.Equal(fileSignature, h.Signature) {
-		return errors.New("invalid pass store")
-	}
-
-	if fileVersion != h.Version {
-		return fmt.Errorf("pass store version mismatch (%d, expected %d)",
-			h.Version, fileVersion)
-	}
-
-	// Strip HMAC from header data
-	/* h.Data = h.Data[:40] */
 
 	return nil
 }
@@ -105,18 +93,48 @@ func (s *Store) Serialize(out io.Writer, cipherStream cipher.Stream, mac hash.Ha
 	cipherWriter := cipher.StreamWriter{cipherStream, plainWriter, nil}
 	enc := json.NewEncoder(cipherWriter)
 
-	// Write header
+	// Write plaintext header
 	if err := s.Header.Serialize(plainWriter, mac); err != nil {
 		return err
 	}
 
-	// Go forth, and marshal thyself!
+	// Encrypt and write JSON-encoded entries
 	if err := enc.Encode(s.Entries); err != nil {
 		return err
 	}
 
-	// Write HMAC of complete file
+	// fmt.Printf("hmac=%x\n", mac.Sum(nil))
+
+	// Write plaintext HMAC of preceeding data
 	out.Write(mac.Sum(nil))
+
+	return nil
+}
+
+func (h *Header) Deserialize(in io.Reader) error {
+	data := make([]byte, h.Size())
+	if _, err := in.Read(data); err != nil {
+		return err
+	}
+
+	// Sequentially read header elements
+	r := bytes.NewReader(data)
+	r.Read(h.Signature[:])
+	h.Version, _ = r.ReadByte()
+	r.Read(h.Salt[:])
+	r.Read(h.HMAC[:])
+
+	if !bytes.Equal(fileSignature[:], h.Signature[:]) {
+		return errors.New("file is not a valid passman store")
+	}
+
+	if fileVersion != h.Version {
+		return fmt.Errorf("file version mismatch (%d, expected %d)",
+			h.Version, fileVersion)
+	}
+
+	// fmt.Printf("salt=%x\n", h.Salt)
+	// fmt.Printf("h_hmac=%x\n", h.HMAC)
 
 	return nil
 }
@@ -124,11 +142,17 @@ func (s *Store) Serialize(out io.Writer, cipherStream cipher.Stream, mac hash.Ha
 func (s *Store) Deserialize(in io.Reader, size int, cipherStream cipher.Stream, mac hash.Hash) error {
 
 	plainReader := io.TeeReader(in, mac)
-	cipherReader := cipher.StreamReader{cipherStream, plainReader}
-	/* dec := json.NewDecoder(cipherReader) */
+	plainReader.Read(make([]byte, s.Header.Size() - mac.Size()))
 
-	content := make([]byte, size-len(s.Data)-mac.Size())
-	/* content := make([]byte, size - len(s.Data)) */
+	if !hmac.Equal(s.Header.HMAC[:], mac.Sum(nil)) {
+		return errors.New("incorrect passphrase")
+	}
+
+	plainReader.Read(make([]byte, mac.Size()))
+
+	cipherReader := cipher.StreamReader{cipherStream, plainReader}
+	content := make([]byte, size - s.Header.Size() - mac.Size())
+
 	if _, err := cipherReader.Read(content); err != nil {
 		return err
 	}
@@ -138,8 +162,10 @@ func (s *Store) Deserialize(in io.Reader, size int, cipherStream cipher.Stream, 
 		return err
 	}
 
+	// fmt.Printf("hmac=%x\n", mac.Sum(nil))
+
 	if !hmac.Equal(h, mac.Sum(nil)) {
-		return errors.New("invalid pass store")
+		return errors.New("incorrect passphrase")
 	}
 
 	if err := json.Unmarshal(content, &s.Entries); err != nil {
@@ -160,10 +186,10 @@ func (s *Store) Export(out io.Writer) error {
 	return nil
 }
 
-func (s *Store) Set(id string, e Entry) error {
-	s.Entries[id] = e
-	return nil
-}
+/* func (s *Store) Set(id string, e Entry) error { */
+/* 	s.Entries[id] = e */
+/* 	return nil */
+/* } */
 
 // todo use write!!
 /* func (s *Store) String() string { */
@@ -184,16 +210,24 @@ func (s *Store) Set(id string, e Entry) error {
 /* 	return json.Marshal(s) */
 /* } */
 
-func (s *Store) Print() {
-	w := tabwriter.NewWriter(os.Stdout, 0, 8, 2, '\t', 0)
+func (s *Store) Print(out io.Writer) {
+	w := tabwriter.NewWriter(out, 0, 8, 2, '\t', 0)
+	defer w.Flush()
 
+	// Copy entries to slice and sort by id
+	keys := make([]string, 0, len(s.Entries))
+	for id := range s.Entries {
+		keys = append(keys, id)
+	}
+	sort.Strings(keys)
+
+	// Print all entries using a tabular format
 	fmt.Fprintln(w, "Id:\tName:\tPassword:")
-	for id, entry := range s.Entries {
+	for _, id := range keys {
+		entry := s.Entries[id]
 		fmt.Fprintf(w, "%s\t%s\t%s\n",
 			id,
 			entry.Name,
 			entry.Password)
 	}
-
-	w.Flush()
 }

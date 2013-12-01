@@ -6,8 +6,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/hmac"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"github.com/howeyc/gopass"
@@ -20,15 +18,10 @@ import (
 // TODO: clear derived keys etc.
 
 const (
-	fileVersion    = 0x00
 	filePermission = 0600
 )
 
-var (
-	// 0x706173736d616e == "passman"
-	fileSignature    = []byte{0x70, 0x61, 0x73, 0x73, 0x6d, 0x61, 0x6e}
-	defaultStorePath string
-)
+var defaultStorePath string
 
 func init() {
 	u, err := user.Current()
@@ -57,47 +50,41 @@ func readVerifiedPassphrase() []byte {
 	}
 }
 
-func initStore() error {
+func cmdInit() error {
 
-	filename := defaultStorePath
+	pathname := defaultStorePath
 
 	// Read store path
-	fmt.Printf("Store location [%s]: ", filename)
-	fmt.Scanln(&filename)
+	fmt.Printf("Store location [%s]: ", pathname)
+	fmt.Scanln(&pathname)
 
 	// Read passphrase
 	passphrase := readVerifiedPassphrase()
 	defer clear(passphrase)
+
+	// TODO: check if file already exists!
+	file, err := os.OpenFile(pathname, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, filePermission)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
 
 	salt, err := generateRandomSalt()
 	if err != nil {
 		return err
 	}
 
-	cipherKey, hmacKey, err := deriveKeys(passphrase, salt)
+	stream, mac, err := initStreamParams(passphrase, salt)
 	if err != nil {
 		return err
 	}
 
-	header := Header{Signature: fileSignature, Version: fileVersion, Salt: salt}
-
+	header := NewHeader()
+	copy(header.Salt[:], salt[:])
 	store := NewStore(header)
 	store.Entries["tweakers"] = Entry{"cafaro", "jeweetzelf", time.Now().Unix()}
 	store.Entries["google"] = Entry{"tvdburgt@gmail.com", "badpasswdtbh", time.Now().Unix()}
 
-	// TODO: check if file already exists!
-	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, filePermission)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	stream, err := initStreamCipher(cipherKey)
-	if err != nil {
-		return err
-	}
-	mac := hmac.New(sha256.New, hmacKey)
-	fmt.Printf("hmacKey=%x\n", hmacKey)
 
 	return store.Serialize(file, stream, mac)
 }
@@ -105,7 +92,6 @@ func initStore() error {
 func readStore(filename string) (*Store, error) {
 
 	passphrase := readPassphrase("Passphrase:")
-	_ = passphrase
 
 	f, err := os.OpenFile(filename, os.O_RDONLY, filePermission)
 	if err != nil {
@@ -119,36 +105,35 @@ func readStore(filename string) (*Store, error) {
 		return nil, err
 	}
 
-	s := new(Store)
-
-	if err := s.Header.Deserialize(f); err != nil {
+	header := new(Header)
+	if err := header.Deserialize(f); err != nil {
 		return nil, err
 	}
 
-	cipherKey, hmacKey, err := deriveKeys(passphrase, s.Header.Salt)
+	stream, mac, err := initStreamParams(passphrase, header.Salt[:])
 	if err != nil {
 		return nil, err
 	}
 
-	stream, err := initStreamCipher(cipherKey)
-	if err != nil {
-		return nil, err
-	}
-	mac := hmac.New(sha256.New, hmacKey)
+	s := NewStore(header)
 
-	// Verify header HMAC
-	mac.Write(s.Header.Data[:40])
-	if !hmac.Equal(s.Header.HMAC, mac.Sum(nil)) {
-		return nil, errors.New("invalid passphrase, try again")
-	}
-
-	mac.Write(s.Header.HMAC)
-
+	f.Seek(0, 0) // Make sure stream starts at beggining of file
 	if err := s.Deserialize(f, int(fi.Size()), stream, mac); err != nil {
 		return nil, err
 	}
 
 	return s, nil
+}
+
+func cmdList() error {
+	s, err := readStore(defaultStorePath)
+	if err != nil {
+		return err
+	}
+
+	s.Print(os.Stdout)
+
+	return nil
 }
 
 func export() error {
@@ -164,8 +149,11 @@ func export() error {
 	return nil
 }
 
-func set() error {
-	s, err := readStore("/home/tman/.passstore")
+func cmdSet() error {
+
+	// passman set <id> <name> [-p password]
+
+	s, err := readStore(defaultStorePath)
 	if err != nil {
 		return err
 	}
@@ -174,11 +162,17 @@ func set() error {
 		return errors.New("not enough args")
 	}
 
-	e := Entry{Password: "defaultpass", Name: "defaultname"}
 	id := os.Args[2]
+	name := os.Args[3]
+	os.Args = os.Args[3:]
 
-	s.Set(id, e)
+	s.Entries[id] = Entry{Password: "defaultpass", Name: name}
+	s.Print(os.Stdout)
 
+	return nil
+}
+
+func cmdDel() error {
 	return nil
 }
 
@@ -193,16 +187,11 @@ func main() {
 
 	switch os.Args[1] {
 	case "init":
-		err = initStore()
+		err = cmdInit()
 	case "list":
-		var s *Store
-		s, err = readStore("/home/tman/.passstore")
+		err = cmdList()
 		/* pass := []byte("") */
 		/* s, err = NewStore("/home/tman/.passstore", os.O_RDONLY, pass) */
-		if err == nil {
-			fmt.Println(s.Entries)
-			s.Print()
-		}
 	case "add":
 		/* if len(os.Args) > 3 { */
 		/* 	pass := readPass("Passphrase:") */
@@ -218,7 +207,7 @@ func main() {
 	case "gen":
 		gen()
 	case "set":
-		err = set()
+		err = cmdSet()
 	}
 
 	if err != nil {
