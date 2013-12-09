@@ -1,5 +1,4 @@
-
-package main
+package store
 
 import (
 	"bytes"
@@ -15,22 +14,26 @@ import (
 	"unsafe"
 )
 
+// TODO: expose?
 const fileVersion = 0x00
+const monthDuration = 2.63e+6
 
+// TODO: check endianness
 var fileSignature = [7]byte{0x6e, 0x50, 0x41, 0x53, 0x4d, 0x41, 0x4e}
+
 //var fileSignature = []byte("passman")
 
 /* File format
- * ---------------------------------------------------------
- * Offset	Size		Description
- * ---------------------------------------------------------
- * 0		7		File signature / magic number
- * 7		1		File format version
- * 8		32		Salt
- * 40		32		HMAC-SHA256(0 .. 32)
- -----------------------------------------------------------
- * 72		n		Encrypted data
- * 72+n		32		HMAC-SHA256(0 .. 72 + (n - 1))
+* ---------------------------------------------------------
+* Offset	Size		Description
+* ---------------------------------------------------------
+* 0		7		File signature / magic number
+* 7		1		File format version
+* 8		32		Salt
+* 40		32		HMAC-SHA256(0 .. 32)
+-----------------------------------------------------------
+* 72		n		Encrypted data
+* 72+n		32		HMAC-SHA256(0 .. 72 + (n - 1))
 */
 
 type Header struct {
@@ -40,17 +43,9 @@ type Header struct {
 	HMAC      [32]byte `json:"-"`
 }
 
-type Entry struct {
-	Name     string `json:"name"`
-	Password string `json:"password"`
-	Age      int64  `json:"age"`
-
-	/* Metadata map[string]string */
-}
-
 type Store struct {
 	Header  `json:"header"`
-	Entries map[string]Entry `json:"entries"`
+	Entries map[string]*Entry `json:"entries"`
 }
 
 func NewHeader() *Header {
@@ -59,7 +54,7 @@ func NewHeader() *Header {
 
 func NewStore(header *Header) *Store {
 	// required to make map?
-	return &Store{*header, make(map[string]Entry)}
+	return &Store{*header, make(map[string]*Entry)}
 }
 
 func (h *Header) Size() int {
@@ -88,7 +83,7 @@ func (h *Header) Serialize(out io.Writer, mac hash.Hash) error {
 }
 
 func (s *Store) Serialize(out io.Writer, cipherStream cipher.Stream, mac hash.Hash) error {
-
+	mac.Reset()
 	plainWriter := io.MultiWriter(out, mac)
 	cipherWriter := cipher.StreamWriter{cipherStream, plainWriter, nil}
 	enc := json.NewEncoder(cipherWriter)
@@ -140,9 +135,9 @@ func (h *Header) Deserialize(in io.Reader) error {
 }
 
 func (s *Store) Deserialize(in io.Reader, size int, cipherStream cipher.Stream, mac hash.Hash) error {
-
+	mac.Reset()
 	plainReader := io.TeeReader(in, mac)
-	plainReader.Read(make([]byte, s.Header.Size() - mac.Size()))
+	plainReader.Read(make([]byte, s.Header.Size()-mac.Size()))
 
 	if !hmac.Equal(s.Header.HMAC[:], mac.Sum(nil)) {
 		return errors.New("incorrect passphrase")
@@ -151,7 +146,7 @@ func (s *Store) Deserialize(in io.Reader, size int, cipherStream cipher.Stream, 
 	plainReader.Read(make([]byte, mac.Size()))
 
 	cipherReader := cipher.StreamReader{cipherStream, plainReader}
-	content := make([]byte, size - s.Header.Size() - mac.Size())
+	content := make([]byte, size-s.Header.Size()-mac.Size())
 
 	if _, err := cipherReader.Read(content); err != nil {
 		return err
@@ -175,44 +170,19 @@ func (s *Store) Deserialize(in io.Reader, size int, cipherStream cipher.Stream, 
 	return nil
 }
 
-func (s *Store) Export(out io.Writer) error {
-	content, err := json.MarshalIndent(s, "", "  ")
-	if err != nil {
-		return err
+func (s *Store) Export(out io.Writer) (err error) {
+	var content []byte
+	if content, err = json.MarshalIndent(s, "", "  "); err != nil {
+		return
 	}
-
 	out.Write(content)
-
-	return nil
+	fmt.Fprintln(out)
+	return
 }
 
-/* func (s *Store) Set(id string, e Entry) error { */
-/* 	s.Entries[id] = e */
-/* 	return nil */
-/* } */
-
-// todo use write!!
-/* func (s *Store) String() string { */
-/* 	// decrypt... */
-/* 	// check indent size */
-/* 	json, err := json.MarshalIndent(s, "", "  ") */
-
-/* 	if err != nil { */
-/* 		panic("JSON marshal failed") */
-/* 	} */
-
-/* 	return string(json) */
-
-/* 	// use defer to encrypt again? */
-/* } */
-
-/* func (s Store) MarshalJSON() ([]byte, error) { */
-/* 	return json.Marshal(s) */
-/* } */
-
-func (s *Store) Print(out io.Writer) {
-	w := tabwriter.NewWriter(out, 0, 8, 2, '\t', 0)
-	defer w.Flush()
+func (s *Store) String() string {
+	b := new(bytes.Buffer)
+	w := tabwriter.NewWriter(b, 0, 8, 2, '\t', 0)
 
 	// Copy entries to slice and sort by id
 	keys := make([]string, 0, len(s.Entries))
@@ -230,4 +200,7 @@ func (s *Store) Print(out io.Writer) {
 			entry.Name,
 			entry.Password)
 	}
+
+	w.Flush()
+	return b.String()
 }

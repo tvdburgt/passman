@@ -7,185 +7,244 @@ package main
 import (
 	"bytes"
 	"errors"
+	_ "flag"
 	"fmt"
 	"github.com/howeyc/gopass"
 	"os"
 	"os/user"
-	"path"
+	"path/filepath"
 	"time"
+	"github.com/tvdburgt/passman/crypto"
+	"github.com/tvdburgt/passman/store"
 )
 
 // TODO: clear derived keys etc.
 
 const (
-	filePermission = 0600
+	filePermission   = 0600 // rw for owner only
+	storePathKey     = "PASSMAN_STORE"
+	defaultStorePath = ".pass_store" // relative to $HOME
 )
 
-var defaultStorePath string
+var storePath string
 
+// file presedence:
+//   [1] -file flag (TODO)
+//   [2] $PASSMAN_STORE environment variable
+//   [3] ~/.pass_store
 func init() {
-	u, err := user.Current()
-	if err != nil {
-		panic(err)
+	if path := os.Getenv(storePathKey); path != "" {
+		storePath = path
+	} else {
+		u, err := user.Current()
+		if err != nil {
+			panic(err)
+		}
+		storePath = filepath.Join(u.HomeDir, defaultStorePath)
 	}
-	defaultStorePath = path.Join(u.HomeDir, ".passstore")
 }
 
-func readPassphrase(prompt string) []byte {
-	fmt.Printf("%s ", prompt)
+func readPass(prompt string, args ...interface{}) []byte {
+	fmt.Printf(prompt+": ", args...)
 	return gopass.GetPasswd()
 }
 
-func readVerifiedPassphrase() []byte {
+func readVerifiedPass() []byte {
 	for {
-		pass1 := readPassphrase("Passphrase:")
-		pass2 := readPassphrase("Passphrase verification:")
+		pass1 := readPass("Passphrase")
+		pass2 := readPass("Passphrase verification")
 
 		if bytes.Equal(pass1, pass2) {
-			clear(pass2)
+			crypto.Clear(pass2)
 			return pass1
 		}
 
-		clear(pass1, pass2)
+		fmt.Fprintln(os.Stderr, "error: passphrases don't match, try again")
+		crypto.Clear(pass1, pass2)
 	}
 }
 
-func cmdInit() error {
+func cmdInit() (err error) {
 
-	pathname := defaultStorePath
-
-	// Read store path
-	fmt.Printf("Store location [%s]: ", pathname)
-	fmt.Scanln(&pathname)
+	// var file *os.File
+	// var store *store.Store
+	// Read file and make sure it doesn't exist
+	fmt.Printf("Store location [%s]: ", storePath)
+	fmt.Scanln(&storePath)
+	// if _, err := os.Stat(filename); err == nil {
+	// 	return fmt.Errorf("the file '%s' already exists", filename)
+	// }
 
 	// Read passphrase
-	passphrase := readVerifiedPassphrase()
-	defer clear(passphrase)
+	passphrase := readVerifiedPass()
+	defer crypto.Clear(passphrase)
 
-	// TODO: check if file already exists!
-	file, err := os.OpenFile(pathname, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, filePermission)
+	// TODO: replace with saveStore
+
+	// if file, err = os.OpenFile(storePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, filePermission); err != nil {
+	// 	return
+	// }
+	// defer file.Close()
+
+	// salt, err := generateRandomSalt()
+	// if err != nil {
+	// 	return err
+	// }
+
+	// stream, mac, err := initStreamParams(passphrase, salt)
+	// if err != nil {
+	// 	return err
+	// }
+
+	header := store.NewHeader()
+	// copy(header.Salt[:], salt[:])
+	s := store.NewStore(header) // create default ctor with header defaults?
+	s.Entries["tweakers"] = &store.Entry{"cafaro", "jeweetzelf", time.Now().Unix()}
+	s.Entries["google"] = &store.Entry{"tvdburgt@gmail.com", "badpasswdtbh", time.Now().Unix()}
+
+	return saveStore(s, passphrase)
+	// return store.Serialize(file, stream, mac)
+}
+
+func saveStore(s *store.Store, passphrase []byte) (err error) {
+	var salt []byte
+
+	file, err := os.OpenFile(storePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, filePermission)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
 
-	salt, err := generateRandomSalt()
+	if salt, err = crypto.GenerateRandomSalt(); err != nil {
+		return
+	}
+	copy(s.Header.Salt[:], salt)
+
+	stream, mac, err := crypto.InitStreamParams(passphrase, salt)
 	if err != nil {
 		return err
 	}
 
-	stream, mac, err := initStreamParams(passphrase, salt)
-	if err != nil {
-		return err
-	}
-
-	header := NewHeader()
-	copy(header.Salt[:], salt[:])
-	store := NewStore(header)
-	store.Entries["tweakers"] = Entry{"cafaro", "jeweetzelf", time.Now().Unix()}
-	store.Entries["google"] = Entry{"tvdburgt@gmail.com", "badpasswdtbh", time.Now().Unix()}
-
-
-	return store.Serialize(file, stream, mac)
+	return s.Serialize(file, stream, mac)
 }
 
-func readStore(filename string) (*Store, error) {
-
-	passphrase := readPassphrase("Passphrase:")
-
-	f, err := os.OpenFile(filename, os.O_RDONLY, filePermission)
+func openStore(passphrase []byte) (s *store.Store, err error) {
+	f, err := os.OpenFile(storePath, os.O_RDONLY, filePermission)
 	if err != nil {
-		return nil, err
+		return
 	}
 	defer f.Close()
 
 	// Get file info with stat
 	fi, err := f.Stat()
 	if err != nil {
-		return nil, err
+		return
 	}
 
-	header := new(Header)
-	if err := header.Deserialize(f); err != nil {
-		return nil, err
+	// We need to serialize the header before the rest of the file can be
+	// serialized
+	header := new(store.Header)
+	if err = header.Deserialize(f); err != nil {
+		return
 	}
 
-	stream, mac, err := initStreamParams(passphrase, header.Salt[:])
+	stream, mac, err := crypto.InitStreamParams(passphrase, header.Salt[:])
 	if err != nil {
-		return nil, err
+		return
 	}
 
-	s := NewStore(header)
+	s = store.NewStore(header)
 
-	f.Seek(0, 0) // Make sure stream starts at beggining of file
-	if err := s.Deserialize(f, int(fi.Size()), stream, mac); err != nil {
-		return nil, err
-	}
+	// Rewind file offset to origin of file (offset is modified by
+	// header.Deserialize).
+	f.Seek(0, os.SEEK_SET)
 
-	return s, nil
+	// Attempt to deserialize store
+	err = s.Deserialize(f, int(fi.Size()), stream, mac)
+	return
 }
 
 func cmdList() error {
-	s, err := readStore(defaultStorePath)
+	passphrase := readPass("Enter passphrase for '%s'", storePath)
+	defer crypto.Clear(passphrase)
+	s, err := openStore(passphrase)
 	if err != nil {
 		return err
 	}
 
-	s.Print(os.Stdout)
+	fmt.Print(s)
 
 	return nil
 }
 
-func export() error {
-	s, err := readStore("/home/tman/.passstore")
-	if err != nil {
-		return err
-	}
-
-	if err := s.Export(os.Stdout); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func cmdSet() error {
-
-	// passman set <id> <name> [-p password]
-
-	s, err := readStore(defaultStorePath)
-	if err != nil {
-		return err
-	}
-
+// TODO: -q query
+func cmdGet() (err error) {
 	if len(os.Args) < 3 {
-		return errors.New("not enough args")
+		return errors.New("missing id argument")
+	}
+	id := os.Args[2]
+
+	passphrase := readPass("Enter passphrase for '%s'", storePath)
+	defer crypto.Clear(passphrase)
+	s, err := openStore(passphrase);
+	if err != nil {
+		return
 	}
 
-	id := os.Args[2]
-	name := os.Args[3]
-	os.Args = os.Args[3:]
+	entry, ok := s.Entries[id]
+	if !ok {
+		return fmt.Errorf("no such entry '%s'", id)
+	}
 
-	s.Entries[id] = Entry{Password: "defaultpass", Name: name}
-	s.Print(os.Stdout)
-
-	return nil
+	fmt.Println(entry)
+	return
 }
 
-func cmdDel() error {
-	return nil
+func cmdRm() (err error) {
+	if len(os.Args) < 3 {
+		return errors.New("missing id argument")
+	}
+	id := os.Args[2]
+
+	// TODO: create wrapper fn
+	passphrase := readPass("Enter passphrase for '%s'", storePath)
+	defer crypto.Clear(passphrase)
+	s, err := openStore(passphrase)
+	if err != nil {
+		return
+	}
+
+	if _, ok := s.Entries[id]; !ok {
+		return fmt.Errorf("no such entry '%s'", id)
+	}
+	
+	delete(s.Entries, id)
+	if err = saveStore(s, passphrase); err != nil {
+		return
+	}
+	fmt.Printf("Removed entry '%s' from store\n", id)
+
+	return
 }
 
 func main() {
 
 	var err error
+	var cmd string
 
 	if len(os.Args) < 2 {
 		fmt.Println("usage: passman command [pass store]")
 		return
 	}
 
-	switch os.Args[1] {
+	// fmt.Printf("path=%s\n", storePath)
+
+	// Shift subcommand from args
+	// cmd, os.Args = os.Args[1], os.Args[:]
+	cmd = os.Args[1]
+	// os.Args[1], os.Args = os.Args[0], os.Args[1:]
+
+	switch cmd {
 	case "init":
 		err = cmdInit()
 	case "list":
@@ -203,15 +262,21 @@ func main() {
 		/* 	err = add(s, os.Args[2], os.Args[3]) */
 		/* } */
 	case "export":
-		err = export()
-	case "gen":
-		gen()
+		err = cmdExport()
+	// case "gen":
+	// 	gen()
+	case "get":
+		err = cmdGet()
 	case "set":
 		err = cmdSet()
+	case "rm":
+		err = cmdRm()
+	case "clip":
+		err = cmdClip()
+		// err = xclip()
 	}
 
 	if err != nil {
-		fmt.Println("error!")
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, "error:", err)
 	}
 }

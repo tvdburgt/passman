@@ -1,21 +1,21 @@
-package main
+package crypto
 
 import (
 	"code.google.com/p/go.crypto/scrypt"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/hmac"
 	"hash"
 	"io"
 )
 
-const keySize = 32 // 256-bit key for AES-256
+const keySize = 32       // 256-bit key for AES-256
 var macHash = sha256.New // Use SHA-256 as HMAC
 
 // Generates a cryptographically secure salt with length equal to key size.
-func generateRandomSalt() ([]byte, error) {
+func GenerateRandomSalt() ([]byte, error) {
 	salt := make([]byte, keySize)
 	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
 		return nil, err
@@ -43,12 +43,12 @@ func initCTRStream(key []byte) (cipher.Stream, error) {
 	return cipher.NewCTR(block, iv), nil
 }
 
-func initStreamParams(passphrase, salt []byte) (stream cipher.Stream, mac hash.Hash, err error) {
+func InitStreamParams(passphrase, salt []byte) (stream cipher.Stream, mac hash.Hash, err error) {
 	cipherKey, hmacKey, err := deriveKeys(passphrase, salt)
 	if err != nil {
 		return
 	}
-	defer clear(cipherKey, hmacKey)
+	defer Clear(cipherKey, hmacKey)
 
 	if stream, err = initCTRStream(cipherKey); err != nil {
 		return
@@ -61,7 +61,7 @@ func initStreamParams(passphrase, salt []byte) (stream cipher.Stream, mac hash.H
 // Clears sensitive data from memory (useful for plaintext passwords etc.)
 // https://groups.google.com/forum/?fromgroups=#!topic/golang-nuts/sKQtvluD_So
 // https://groups.google.com/forum/#!msg/golang-nuts/KvgjNbCXTY4/uigWOtc6bJcJ
-func clear(s ...[]byte) {
+func Clear(s ...[]byte) {
 	for _, secret := range s {
 		for i := range secret {
 			secret[i] = 0
