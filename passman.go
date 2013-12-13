@@ -7,13 +7,12 @@ package main
 import (
 	"bytes"
 	"errors"
-	_ "flag"
+	"flag"
 	"fmt"
 	"github.com/howeyc/gopass"
 	"os"
 	"os/user"
 	"path/filepath"
-	"time"
 	"github.com/tvdburgt/passman/crypto"
 	"github.com/tvdburgt/passman/store"
 )
@@ -65,9 +64,6 @@ func readVerifiedPass() []byte {
 }
 
 func cmdInit() (err error) {
-
-	// var file *os.File
-	// var store *store.Store
 	// Read file and make sure it doesn't exist
 	fmt.Printf("Store location [%s]: ", storePath)
 	fmt.Scanln(&storePath)
@@ -79,31 +75,9 @@ func cmdInit() (err error) {
 	passphrase := readVerifiedPass()
 	defer crypto.Clear(passphrase)
 
-	// TODO: replace with saveStore
-
-	// if file, err = os.OpenFile(storePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, filePermission); err != nil {
-	// 	return
-	// }
-	// defer file.Close()
-
-	// salt, err := generateRandomSalt()
-	// if err != nil {
-	// 	return err
-	// }
-
-	// stream, mac, err := initStreamParams(passphrase, salt)
-	// if err != nil {
-	// 	return err
-	// }
-
 	header := store.NewHeader()
-	// copy(header.Salt[:], salt[:])
 	s := store.NewStore(header) // create default ctor with header defaults?
-	s.Entries["tweakers"] = &store.Entry{"cafaro", "jeweetzelf", time.Now().Unix()}
-	s.Entries["google"] = &store.Entry{"tvdburgt@gmail.com", "badpasswdtbh", time.Now().Unix()}
-
 	return saveStore(s, passphrase)
-	// return store.Serialize(file, stream, mac)
 }
 
 func saveStore(s *store.Store, passphrase []byte) (err error) {
@@ -191,12 +165,37 @@ func cmdGet() (err error) {
 		return
 	}
 
-	entry, ok := s.Entries[id]
-	if !ok {
+	e := s.Find(id)
+	if e == nil {
 		return fmt.Errorf("no such entry '%s'", id)
 	}
 
-	fmt.Println(entry)
+	fmt.Println(e)
+	return
+}
+
+func cmdImport() (err error) {
+	var flagFormat string
+	const usage = "import file format (passman, keepass)"
+
+	if len(os.Args) < 3 {
+		return errors.New("missing file argument")
+	}
+	filename := os.Args[2]
+
+	fs := flag.NewFlagSet(os.Args[1], flag.ExitOnError)
+	fs.StringVar(&flagFormat, "format", "passman", usage)
+	fs.StringVar(&flagFormat, "f", "passman", usage)
+	fs.Parse(os.Args[3:])
+
+	switch flagFormat {
+	case "passman":
+	case "keepass":
+	default:
+		return fmt.Errorf("unknown import file format '%s'", flagFormat)
+	}
+
+	fmt.Println(filename)
 	return
 }
 
@@ -214,11 +213,11 @@ func cmdRm() (err error) {
 		return
 	}
 
-	if _, ok := s.Entries[id]; !ok {
-		return fmt.Errorf("no such entry '%s'", id)
-	}
+	// if _, ok := s.Entries[id]; !ok {
+	// 	return fmt.Errorf("no such entry '%s'", id)
+	// }
 	
-	delete(s.Entries, id)
+	// delete(s.Entries, id)
 	if err = saveStore(s, passphrase); err != nil {
 		return
 	}
@@ -236,6 +235,13 @@ func main() {
 		fmt.Println("usage: passman command [pass store]")
 		return
 	}
+
+
+	// e := new(store.Entry)
+	// // fmt.Printf("%v %T %q\n", e, e, e)
+	// fmt.Println(e.Entries)
+	// e.Entries["foo"] = new(store.Entry)
+	// return
 
 	// fmt.Printf("path=%s\n", storePath)
 
@@ -263,6 +269,8 @@ func main() {
 		/* } */
 	case "export":
 		err = cmdExport()
+	case "import":
+		err = cmdImport()
 	// case "gen":
 	// 	gen()
 	case "get":
@@ -278,5 +286,6 @@ func main() {
 
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
+		// Exit code = 1?
 	}
 }

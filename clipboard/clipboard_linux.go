@@ -6,7 +6,6 @@ package clipboard
 import (
 	"errors"
 	"fmt"
-
 	"github.com/BurntSushi/xgb"
 	"github.com/BurntSushi/xgb/xproto"
 )
@@ -44,7 +43,7 @@ func Setup() (err error) {
 
 func Put(data []byte) (err error) {
 	if conn == nil {
-		return errors.New("no X connection; did you run clipboard.Setup() beforehand?")
+		return errors.New("no X connection, did you run clipboard.Setup() beforehand?")
 	}
 
 	fmt.Println("timestamps:")
@@ -57,6 +56,7 @@ func Put(data []byte) (err error) {
 	if err != nil {
 		return err
 	}
+	// time is 0
 	xproto.SetSelectionOwner(conn, win, selection, time)
 
 	// Check if selection owner has changed to our window

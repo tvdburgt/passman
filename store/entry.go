@@ -5,13 +5,36 @@ import (
 	"time"
 )
 
-// TODO: create ctor that sets time
 type Entry struct {
-	Name     string `json:"name"`
-	Password string `json:"password"`
-	Time     int64  `json:"time"`
-	// Metadata map[string]string
+	Name     string            `json:"name,omitempty"`     // remove omitempty
+	Password string            `json:"password,omitempty"` // use []byte to prevent json errors
+	Time     int64             `json:"time,omitempty"`
+	Metadata map[string]string `json:"metadata,omitempty"`
+	Entries  container         `json:"entries,omitempty"`
 }
+
+type entryContainer []struct {
+	id string
+	lvl int
+	e  *Entry
+}
+
+// Implement sort.Interface
+func (e entryContainer) Len() int           { return len(e) }
+func (e entryContainer) Swap(i, j int)      { e[i], e[j] = e[j], e[i] }
+func (e entryContainer) Less(i, j int) bool { return e[i].id > e[j].id }
+
+func newContainer() (e *Entry) {
+	e = new(Entry)
+	e.Entries = make(container)
+	return
+}
+
+// func NewEntry(name, password string) (e *Entry) {
+// 	e = &Entry{Name: name, Password: password}
+// 	e.Touch()
+// 	return
+// }
 
 func (e *Entry) Age() time.Duration {
 	t := time.Unix(e.Time, 0)
@@ -22,7 +45,22 @@ func (e *Entry) Touch() {
 	e.Time = time.Now().Unix()
 }
 
+// func (e *Entry) Id() {
+// 	e.Time = time.Now().Unix()
+// }
+
 func (e *Entry) String() string {
 	months := e.Age().Seconds() / monthDuration
 	return fmt.Sprintf("%s => %s (%.1f months)", e.Name, e.Password, months)
+}
+
+// Determines if entry is empty. Empty entries are used as placeholders that
+// contain non-empty sub-entries.
+// TODO: do Name and Time need to be empty?
+// func (e *Entry) IsEmpty() bool {
+// 	return len(e.Password) == 0
+// }
+
+func (e *Entry) IsContainer() bool {
+	return e.Entries != nil
 }

@@ -32,8 +32,6 @@ func cmdSet() (err error) {
 	var flagName string
 	var flagPassword bool
 	var flagId string
-	// var password []byte
-	// var existing bool
 
 	if len(os.Args) < 3 {
 		return errors.New("missing id argument")
@@ -47,7 +45,10 @@ func cmdSet() (err error) {
 	fs.BoolVar(&flagPassword, "password", false, "set password")
 	fs.BoolVar(&flagPassword, "p", false, "set password")
 	fs.StringVar(&flagId, "id", "", "set id")
+
 	fs.Parse(os.Args[3:])
+
+	fmt.Println(fs.NFlag())
 
 	passphrase := readPass("Enter passphrase for '%s'", storePath)
 	defer crypto.Clear(passphrase)
@@ -56,10 +57,17 @@ func cmdSet() (err error) {
 		return
 	}
 
-	entry, existing := s.Entries[id]
+	// Fetch entry
+	e := s.Find(id)
+	existing := e != nil
+
+	// New entry; create one
 	if !existing {
-		entry = new(store.Entry)
-		s.Entries[id] = entry
+		e = new(store.Entry)
+		err = s.Insert(id, e)
+		if err != nil {
+			return
+		}
 	}
 
 	if existing && fs.NFlag() == 0 {
@@ -67,31 +75,33 @@ func cmdSet() (err error) {
 	}
 
 	if len(flagName) > 0 {
-		entry.Name = flagName
+		e.Name = flagName
 	}
 
 	if len(flagId) > 0 {
-		if _, ok := s.Entries[flagId]; ok {
+		if s.Find(flagId) != nil {
 			return fmt.Errorf("Entry '%s' already exists", flagId)
 		}
-		s.Entries[flagId] = entry
-		delete(s.Entries, id)
+		s.Insert(flagId, e)
+		s.Remove(id)
 	}
 
 	if !existing || flagPassword {
-		password, err := getPassword()
-		if err != nil {
+		if password, err := getPassword(); err != nil {
 			return err
+		} else {
+			e.Password = string(password)
 		}
-		entry.Password = string(password)
-		entry.Touch() // Update modification time
+		// Update modification time
+		e.Touch()
 	}
 
-	if err = saveStore(s, passphrase); err != nil {
+	err = saveStore(s, passphrase)
+	if err != nil {
 		return
 	}
 
-	fmt.Println(entry)
+	fmt.Println(e)
 	return
 }
 
