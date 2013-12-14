@@ -146,7 +146,11 @@ func cmdList() error {
 		return err
 	}
 
-	fmt.Print(s)
+	var prefix string
+	if len(os.Args) >= 3 {
+		prefix = os.Args[2]
+	}
+	s.List(os.Stdout, prefix)
 
 	return nil
 }

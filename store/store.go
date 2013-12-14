@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 	"text/tabwriter"
 	"unsafe"
 )
@@ -72,14 +73,32 @@ func (s *Store) GoString() string {
 	return ""
 }
 
-// Returns entry ids in sorted order
-func (s *Store) ids() []string {
+// Returns entry ids with given prefix in sorted order
+func (s *Store) ids(prefix string) []string {
 	ids := make([]string, 0, len(s.Entries))
 	for id := range s.Entries {
-		ids = append(ids, id)
+		if strings.HasPrefix(id, prefix) {
+			ids = append(ids, id)
+		}
 	}
 	sort.Strings(ids)
 	return ids
+}
+
+func (s *Store) List(out io.Writer, prefix string) {
+	w := tabwriter.NewWriter(out, 0, 8, 2, '\t', 0)
+
+	fmt.Fprintln(w, "Id:\tName:\tPassword:")
+
+	for _, id := range s.ids(prefix) {
+		e := s.Entries[id]
+		fmt.Fprintf(w, "%s\t%s\t%s\n",
+			id,
+			e.Name,
+			e.Password)
+	}
+
+	w.Flush()
 }
 
 func (s *Store) String() string {
@@ -88,7 +107,7 @@ func (s *Store) String() string {
 
 	fmt.Fprintln(w, "Id:\tName:\tPassword:")
 
-	for _, id := range s.ids() {
+	for _, id := range s.ids("") {
 		e := s.Entries[id]
 		fmt.Fprintf(w, "%s\t%s\t%s\n",
 			id,
