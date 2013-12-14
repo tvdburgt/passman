@@ -13,23 +13,6 @@ type Entry struct {
 	Entries  container         `json:"entries,omitempty"`
 }
 
-type entryContainer []struct {
-	id string
-	lvl int
-	e  *Entry
-}
-
-// Implement sort.Interface
-func (e entryContainer) Len() int           { return len(e) }
-func (e entryContainer) Swap(i, j int)      { e[i], e[j] = e[j], e[i] }
-func (e entryContainer) Less(i, j int) bool { return e[i].id > e[j].id }
-
-func newContainer() (e *Entry) {
-	e = new(Entry)
-	e.Entries = make(container)
-	return
-}
-
 // func NewEntry(name, password string) (e *Entry) {
 // 	e = &Entry{Name: name, Password: password}
 // 	e.Touch()
