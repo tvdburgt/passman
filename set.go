@@ -28,6 +28,7 @@ const (
 )
 
 // passman set id [-n name] [-p]
+// TODO: metadata
 func cmdSet() (err error) {
 	var flagName string
 	var flagPassword bool
@@ -58,16 +59,12 @@ func cmdSet() (err error) {
 	}
 
 	// Fetch entry
-	e := s.Find(id)
-	existing := e != nil
+	e, existing := s.Entries[id]
 
 	// New entry; create one
 	if !existing {
 		e = new(store.Entry)
-		err = s.Insert(id, e)
-		if err != nil {
-			return
-		}
+		s.Entries[id] = e
 	}
 
 	if existing && fs.NFlag() == 0 {
@@ -79,11 +76,11 @@ func cmdSet() (err error) {
 	}
 
 	if len(flagId) > 0 {
-		if s.Find(flagId) != nil {
+		if _, ok := s.Entries[flagId]; ok {
 			return fmt.Errorf("Entry '%s' already exists", flagId)
 		}
-		s.Insert(flagId, e)
-		s.Remove(id)
+		s.Entries[flagId] = e
+		delete(s.Entries, id)
 	}
 
 	if !existing || flagPassword {

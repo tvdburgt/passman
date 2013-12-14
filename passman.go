@@ -151,7 +151,7 @@ func cmdList() error {
 	return nil
 }
 
-// TODO: -q query
+// TODO: -q query (globbing)
 func cmdGet() (err error) {
 	if len(os.Args) < 3 {
 		return errors.New("missing id argument")
@@ -165,8 +165,8 @@ func cmdGet() (err error) {
 		return
 	}
 
-	e := s.Find(id)
-	if e == nil {
+	e, ok := s.Entries[id]
+	if !ok {
 		return fmt.Errorf("no such entry '%s'", id)
 	}
 
