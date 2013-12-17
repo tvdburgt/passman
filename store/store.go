@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"regexp"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -32,7 +33,7 @@ var Signature = [7]byte{0x6e, 0x50, 0x41, 0x53, 0x4d, 0x41, 0x4e}
 
 //var fileSignature = []byte("passman")
 
-// Nested struct?
+// Use nested struct?
 type Header struct {
 	Signature [7]byte  `json:"-"`
 	Version   byte     `json:"version"`
@@ -74,10 +75,10 @@ func (s *Store) GoString() string {
 }
 
 // Returns entry ids with given prefix in sorted order
-func (s *Store) ids(prefix string) []string {
+func (s *Store) ids(pattern *regexp.Regexp) []string {
 	ids := make([]string, 0, len(s.Entries))
 	for id := range s.Entries {
-		if strings.HasPrefix(id, prefix) {
+		if pattern == nil || pattern.MatchString(id) {
 			ids = append(ids, id)
 		}
 	}
@@ -85,19 +86,21 @@ func (s *Store) ids(prefix string) []string {
 	return ids
 }
 
-func (s *Store) List(out io.Writer, prefix string) {
+func (s *Store) List(out io.Writer, pattern *regexp.Regexp) {
+	// check $COLUMNS and $LINES
 	w := tabwriter.NewWriter(out, 0, 8, 2, '\t', 0)
-
-	fmt.Fprintln(w, "Id:\tName:\tPassword:")
-
-	for _, id := range s.ids(prefix) {
+	n, _ := fmt.Fprintln(w, "id\tname\tage")
+	fmt.Fprintln(w, strings.Repeat("-", 80))
+	_ = strings.Repeat("-", n)
+	for _, id := range s.ids(pattern) {
 		e := s.Entries[id]
-		fmt.Fprintf(w, "%s\t%s\t%s\n",
+		months := e.Age().Seconds() / monthDuration
+		fmt.Fprintf(w, "%s\t%s\t%.1f months\n",
 			id,
 			e.Name,
-			e.Password)
+			months)
 	}
-
+	fmt.Fprintln(w, strings.Repeat("-", 80))
 	w.Flush()
 }
 
@@ -107,7 +110,7 @@ func (s *Store) String() string {
 
 	fmt.Fprintln(w, "Id:\tName:\tPassword:")
 
-	for _, id := range s.ids("") {
+	for _, id := range s.ids(nil) {
 		e := s.Entries[id]
 		fmt.Fprintf(w, "%s\t%s\t%s\n",
 			id,

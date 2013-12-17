@@ -7,6 +7,26 @@ import (
 	"os"
 )
 
+func cmdGen() (err error) {
+
+	// /usr/share/dict/words can be changed by symlink or with
+	// 'select-default-wordlist' on Debian
+
+	fmt.Println("generating pass")
+	fmt.Println(passgen.DicewareDict)
+
+
+	for i := 0; i < 10; i++ {
+		password, m, _ := passgen.Diceware(6, "")
+		fmt.Printf("%s (%.2f bits)\n", password, passgen.Entropy(6, m))
+	}
+
+	return
+
+
+	// TODO: clear()
+}
+
 func gen() {
 
 	size := flag.Uint("len", 64, "password length")
@@ -23,7 +43,7 @@ func gen() {
 	var i uint
 
 	for i = 0; i < *n; i++ {
-		pass, err := passgen.Generate(int(*size), charSet)
+		pass, err := passgen.Ascii(int(*size), charSet)
 		if err != nil {
 			fmt.Println(err)
 			return

@@ -11,6 +11,13 @@ import (
 	"fmt"
 )
 
+
+func (h* Header) MarshalBinary() (data []byte, err error) {
+
+
+	return
+}
+
 func (h *Header) Serialize(out io.Writer, mac hash.Hash) error {
 	buf := new(bytes.Buffer)
 	buf.Write(h.Signature[:])

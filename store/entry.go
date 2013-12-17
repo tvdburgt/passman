@@ -6,9 +6,10 @@ import (
 )
 
 type Entry struct {
-	Name     string            `json:"name,omitempty"`     // remove omitempty
-	Password string            `json:"password,omitempty"` // use []byte to prevent json errors
+	Name     string            `json:"name,omitempty"`
+	Password []byte            `json:"password,omitempty"`
 	Time     int64             `json:"time,omitempty"`
+	// Entropy  int             `json:"entropy,omitempty"`
 	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
@@ -26,10 +27,6 @@ func (e *Entry) Age() time.Duration {
 func (e *Entry) Touch() {
 	e.Time = time.Now().Unix()
 }
-
-// func (e *Entry) Id() {
-// 	e.Time = time.Now().Unix()
-// }
 
 func (e *Entry) String() string {
 	months := e.Age().Seconds() / monthDuration

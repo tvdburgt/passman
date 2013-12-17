@@ -10,6 +10,9 @@ import (
 	"flag"
 	"fmt"
 	"github.com/howeyc/gopass"
+	"log"
+	"strings"
+	// TODO: github.com/seehuhn/password
 	"os"
 	"os/user"
 	"path/filepath"
@@ -43,6 +46,7 @@ func init() {
 	}
 }
 
+// TODO: check for errors (Ctrl-c)
 func readPass(prompt string, args ...interface{}) []byte {
 	fmt.Printf(prompt+": ", args...)
 	return gopass.GetPasswd()
@@ -77,10 +81,10 @@ func cmdInit() (err error) {
 
 	header := store.NewHeader()
 	s := store.NewStore(header) // create default ctor with header defaults?
-	return saveStore(s, passphrase)
+	return writeStore(s, passphrase)
 }
 
-func saveStore(s *store.Store, passphrase []byte) (err error) {
+func writeStore(s *store.Store, passphrase []byte) (err error) {
 	var salt []byte
 
 	file, err := os.OpenFile(storePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, filePermission)
@@ -102,7 +106,13 @@ func saveStore(s *store.Store, passphrase []byte) (err error) {
 	return s.Serialize(file, stream, mac)
 }
 
-func openStore(passphrase []byte) (s *store.Store, err error) {
+func readPassStore() (*store.Store, error) {
+	passphrase := readPass("Enter passphrase for '%s'", storePath)
+	defer crypto.Clear(passphrase)
+	return readStore(passphrase)
+}
+
+func readStore(passphrase []byte) (s *store.Store, err error) {
 	f, err := os.OpenFile(storePath, os.O_RDONLY, filePermission)
 	if err != nil {
 		return
@@ -138,46 +148,6 @@ func openStore(passphrase []byte) (s *store.Store, err error) {
 	return
 }
 
-func cmdList() error {
-	passphrase := readPass("Enter passphrase for '%s'", storePath)
-	defer crypto.Clear(passphrase)
-	s, err := openStore(passphrase)
-	if err != nil {
-		return err
-	}
-
-	var prefix string
-	if len(os.Args) >= 3 {
-		prefix = os.Args[2]
-	}
-	s.List(os.Stdout, prefix)
-
-	return nil
-}
-
-// TODO: -q query (globbing)
-func cmdGet() (err error) {
-	if len(os.Args) < 3 {
-		return errors.New("missing id argument")
-	}
-	id := os.Args[2]
-
-	passphrase := readPass("Enter passphrase for '%s'", storePath)
-	defer crypto.Clear(passphrase)
-	s, err := openStore(passphrase);
-	if err != nil {
-		return
-	}
-
-	e, ok := s.Entries[id]
-	if !ok {
-		return fmt.Errorf("no such entry '%s'", id)
-	}
-
-	fmt.Println(e)
-	return
-}
-
 func cmdImport() (err error) {
 	var flagFormat string
 	const usage = "import file format (passman, keepass)"
@@ -203,93 +173,150 @@ func cmdImport() (err error) {
 	return
 }
 
-func cmdRm() (err error) {
-	if len(os.Args) < 3 {
-		return errors.New("missing id argument")
-	}
-	id := os.Args[2]
 
-	// TODO: create wrapper fn
-	passphrase := readPass("Enter passphrase for '%s'", storePath)
-	defer crypto.Clear(passphrase)
-	s, err := openStore(passphrase)
-	if err != nil {
-		return
-	}
+// Using the subcommand code from the Go source.
+// A Command is an implementation of a go command
+// like go build or go fix.
+type Command struct {
+	// Run runs the command.
+	// The args are the arguments after the command name.
+	Run func(cmd *Command, args []string)
 
-	// if _, ok := s.Entries[id]; !ok {
-	// 	return fmt.Errorf("no such entry '%s'", id)
-	// }
-	
-	// delete(s.Entries, id)
-	if err = saveStore(s, passphrase); err != nil {
-		return
-	}
-	fmt.Printf("Removed entry '%s' from store\n", id)
+	// UsageLine is the one-line usage message.
+	// The first word in the line is taken to be the command name.
+	UsageLine string
 
-	return
+	// Short is the short description shown in the 'go help' output.
+	Short string
+
+	// Long is the long message shown in the 'go help <this-command>' output.
+	Long string
+
+	// Flag is a set of flags specific to this command.
+	Flag flag.FlagSet
+
+	// CustomFlags indicates that the command will do its own
+	// flag parsing.
+	CustomFlags bool
+}
+
+// Name returns the command's name: the first word in the usage line.
+func (c *Command) Name() string {
+	name := c.UsageLine
+	i := strings.Index(name, " ")
+	if i >= 0 {
+		name = name[:i]
+	}
+	return name
+}
+
+func (c *Command) Usage() {
+	fmt.Fprintf(os.Stderr, "usage: %s\n\n", c.UsageLine)
+	fmt.Fprintf(os.Stderr, "%s\n", strings.TrimSpace(c.Long))
+	os.Exit(1)
+}
+
+// Commands lists the available commands and help topics.
+// The order here is the order in which they are printed by 'passman help'.
+var commands = []*Command{
+	cmdExport,
+	cmdGet,
+	cmdList,
+	cmdRm,
+	cmdSet,
+}
+
+func usage() {
+	fmt.Fprintln(os.Stderr, "passman usage")
+	os.Exit(1)
+}
+
+func fatalf(format string, args ...interface{}) {
+	log.Printf(format, args...)
+	os.Exit(1)
 }
 
 func main() {
+	flag.Usage = usage
+	flag.Parse()
 
-	var err error
-	var cmd string
-
-	if len(os.Args) < 2 {
-		fmt.Println("usage: passman command [pass store]")
-		return
+	args := flag.Args()
+	if len(args) < 1 {
+		usage()
 	}
 
+	// Don't include date etc. in log output
+	log.SetFlags(0)
 
-	// e := new(store.Entry)
-	// // fmt.Printf("%v %T %q\n", e, e, e)
-	// fmt.Println(e.Entries)
-	// e.Entries["foo"] = new(store.Entry)
-	// return
 
-	// fmt.Printf("path=%s\n", storePath)
+	for _, cmd := range commands {
+		if cmd.Name() == args[0] && cmd.Run != nil {
+			// TODO: CustomFlags
+			cmd.Flag.Usage = func() { cmd.Usage() }
+			if cmd.CustomFlags {
+				args = args[1:]
+			} else {
+				cmd.Flag.Parse(args[1:])
+				args = cmd.Flag.Args()
+			}
+			cmd.Run(cmd, args)
+			os.Exit(0)
+		}
+	}
 
-	// Shift subcommand from args
-	// cmd, os.Args = os.Args[1], os.Args[:]
-	cmd = os.Args[1]
-	// os.Args[1], os.Args = os.Args[0], os.Args[1:]
+	fmt.Fprintf(os.Stderr, "%[1]s: unknown subcommand %q\nRun '%[1]s help' for usage.\n",
+		os.Args[0], args[0])
+	os.Exit(1)
 
-	switch cmd {
-	case "init":
-		err = cmdInit()
-	case "list":
-		err = cmdList()
-		/* pass := []byte("") */
-		/* s, err = NewStore("/home/tman/.passstore", os.O_RDONLY, pass) */
-	case "add":
-		/* if len(os.Args) > 3 { */
-		/* 	pass := readPass("Passphrase:") */
-		/* 	s, err = NewStore("/home/tman/.passstore", os.O_RDWR, pass) */
-		/* 	if err != nil { */
-		/* 		fmt.Println("caught error", err) */
-		/* 		break */
-		/* 	} */
-		/* 	err = add(s, os.Args[2], os.Args[3]) */
-		/* } */
-	case "export":
-		err = cmdExport()
-	case "import":
-		err = cmdImport()
+
+
+
+	// var err error
+	// var cmd string
+
+	// if len(os.Args) < 2 {
+	// 	fmt.Println("usage: passman command [pass store]")
+	// 	return
+	// }
+
+	// cmd = os.Args[1]
+
+	// switch cmd {
+	// case "init":
+	// 	err = cmdInit()
+	// case "list":
+	// 	err = cmdList()
+	// 	/* pass := []byte("") */
+	// 	/* s, err = NewStore("/home/tman/.passstore", os.O_RDONLY, pass) */
+	// case "add":
+	// 	/* if len(os.Args) > 3 { */
+	// 	/* 	pass := readPass("Passphrase:") */
+	// 	/* 	s, err = NewStore("/home/tman/.passstore", os.O_RDWR, pass) */
+	// 	/* 	if err != nil { */
+	// 	/* 		fmt.Println("caught error", err) */
+	// 	/* 		break */
+	// 	/* 	} */
+	// 	/* 	err = add(s, os.Args[2], os.Args[3]) */
+	// 	/* } */
+	// case "export":
+	// 	err = cmdExport()
+	// case "import":
+	// 	err = cmdImport()
 	// case "gen":
-	// 	gen()
-	case "get":
-		err = cmdGet()
-	case "set":
-		err = cmdSet()
-	case "rm":
-		err = cmdRm()
-	case "clip":
-		err = cmdClip()
-		// err = xclip()
-	}
+	// 	err = cmdGen()
+	// case "get":
+	// 	err = cmdGet()
+	// case "set":
+	// 	err = cmdSet()
+	// case "rm":
+	// 	err = cmdRm()
+	// case "clip":
+	// 	err = cmdClip()
+	// 	// err = xclip()
+	// }
 
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		// Exit code = 1?
-	}
+	// if err != nil {
+	// 	fmt.Fprintln(os.Stderr, "error:", err)
+	// 	// Exit code = 1?
+	// }
 }

@@ -1,16 +1,34 @@
 package main
 
 import (
-	"errors"
-	"flag"
 	"fmt"
 	"github.com/tvdburgt/passgen"
 	"github.com/tvdburgt/passman/crypto"
 	"github.com/tvdburgt/passman/store"
-	"os"
 	"strconv"
 	"unicode"
 )
+
+var cmdSet = &Command{
+	UsageLine: "set [options] <id>",
+	Short: "create or modify a passman entry",
+	Long: `
+long description
+
+	-n -name <name>		set name
+	-p -password		prompt for password
+	-id <identifier>	change id of existing entry
+	`,
+}
+
+func init() {
+	cmdSet.Run = runSet
+	cmdSet.Flag.StringVar(&setName, "n", "", "")
+	cmdSet.Flag.StringVar(&setName, "name", "", "")
+	cmdSet.Flag.BoolVar(&setPassword, "p", false, "")
+	cmdSet.Flag.BoolVar(&setPassword, "password", false, "")
+	cmdSet.Flag.StringVar(&setId, "id", "", "")
+}
 
 type passMethod int
 
@@ -27,33 +45,21 @@ const (
 	defaultLength = 64
 )
 
-// passman set id [-n name] [-p]
-// TODO: metadata
-func cmdSet() (err error) {
-	var flagName string
-	var flagPassword bool
-	var flagId string
+var (
+	setName string
+	setPassword bool
+	setId string
+)
 
-	if len(os.Args) < 3 {
-		return errors.New("missing id argument")
+func runSet(cmd *Command, args []string) {
+	if len(args) < 1 {
+		fatalf("passman set: missing id")
 	}
-	id := os.Args[2]
-
-	// TODO: -id (change id)
-	fs := flag.NewFlagSet(os.Args[1], flag.ExitOnError)
-	fs.StringVar(&flagName, "name", "", "associated name")
-	fs.StringVar(&flagName, "n", "", "associated name (shorthand)")
-	fs.BoolVar(&flagPassword, "password", false, "set password")
-	fs.BoolVar(&flagPassword, "p", false, "set password")
-	fs.StringVar(&flagId, "id", "", "set id")
-
-	fs.Parse(os.Args[3:])
-
-	fmt.Println(fs.NFlag())
+	id := args[0]
 
 	passphrase := readPass("Enter passphrase for '%s'", storePath)
 	defer crypto.Clear(passphrase)
-	s, err := openStore(passphrase)
+	s, err := readStore(passphrase)
 	if err != nil {
 		return
 	}
@@ -63,44 +69,126 @@ func cmdSet() (err error) {
 
 	// New entry; create one
 	if !existing {
+		fmt.Println("Entry %q doesn't exist, creating...", id)
 		e = new(store.Entry)
 		s.Entries[id] = e
+	} else {
+		fmt.Println("Found entry %q", id)
 	}
 
-	if existing && fs.NFlag() == 0 {
-		return fmt.Errorf("no arguments to set for '%s'", id)
+	if existing && cmd.Flag.NFlag() == 0 {
+		fatalf("passman set: no arguments to set for %q", id)
 	}
 
-	if len(flagName) > 0 {
-		e.Name = flagName
+	if len(setName) > 0 {
+		e.Name = setName
 	}
 
-	if len(flagId) > 0 {
-		if _, ok := s.Entries[flagId]; ok {
-			return fmt.Errorf("Entry '%s' already exists", flagId)
+	if len(setId) > 0 {
+		if _, ok := s.Entries[setId]; ok {
+			fatalf("passman set: entry with id %q already exists", setId)
 		}
-		s.Entries[flagId] = e
+		s.Entries[setId] = e
 		delete(s.Entries, id)
 	}
 
-	if !existing || flagPassword {
+	if !existing || setPassword {
 		if password, err := getPassword(); err != nil {
-			return err
+			fatalf("passman set: %s", err)
 		} else {
-			e.Password = string(password)
+			// TODO: clear password, use []byte
+			e.Password = password
 		}
 		// Update modification time
 		e.Touch()
 	}
 
-	err = saveStore(s, passphrase)
+	err = writeStore(s, passphrase)
 	if err != nil {
 		return
 	}
 
 	fmt.Println(e)
-	return
 }
+
+// passman set id [-n name] [-p]
+// TODO: metadata
+// func runSet(cmd *Command, args []string) {
+// 	var flagName string
+// 	var flagPassword bool
+// 	var flagId string
+
+// 	if len(args) < 1 {
+// 		fatalf("passman set: missing identifier")
+// 	}
+// 	id := args[0]
+
+// 	// TODO: -id (change id)
+// 	fs := flag.NewFlagSet(os.Args[1], flag.ExitOnError)
+// 	fs.StringVar(&flagName, "name", "", "associated name")
+// 	fs.StringVar(&flagName, "n", "", "associated name (shorthand)")
+// 	fs.BoolVar(&flagPassword, "password", false, "set password")
+// 	fs.BoolVar(&flagPassword, "p", false, "set password")
+// 	fs.StringVar(&flagId, "id", "", "set id")
+
+// 	fs.Parse(os.Args[3:])
+
+// 	// fmt.Println(fs.NFlag())
+
+// 	passphrase := readPass("Enter passphrase for '%s'", storePath)
+// 	defer crypto.Clear(passphrase)
+// 	s, err := openStore(passphrase)
+// 	if err != nil {
+// 		return
+// 	}
+
+// 	// Fetch entry
+// 	e, existing := s.Entries[id]
+
+// 	// New entry; create one
+// 	if !existing {
+// 		fmt.Println("Entry %q doesn't exist, creating...", id)
+// 		e = new(store.Entry)
+// 		s.Entries[id] = e
+// 	} else {
+// 		fmt.Println("Found entry %q", id)
+// 	}
+
+// 	if existing && fs.NFlag() == 0 {
+// 		fatalf("passman set: no arguments to set for %q", id)
+// 	}
+
+// 	if len(flagName) > 0 {
+// 		e.Name = flagName
+// 	}
+
+// 	if len(flagId) > 0 {
+// 		if _, ok := s.Entries[flagId]; ok {
+// 			fatalf("passman set: entry with id %q already exists", flagId)
+// 		}
+// 		s.Entries[flagId] = e
+// 		delete(s.Entries, id)
+// 	}
+
+// 	if !existing || flagPassword {
+// 		if password, err := getPassword(); err != nil {
+// 			fatalf("passman set: %s", err)
+// 		} else {
+// 			// TODO: clear password, use []byte
+// 			e.Password = password
+// 		}
+// 		// Update modification time
+// 		e.Touch()
+// 	}
+
+// 	err = saveStore(s, passphrase)
+// 	if err != nil {
+// 		return
+// 	}
+
+// 	fmt.Println(e)
+// 	return
+// }
 
 // Helper method for reading numbers from stdin; uses default value (def) if
 // input is empty. An error is returned if Atoi can't parse input.
@@ -163,21 +251,28 @@ func generatePassword(method passMethod) (password []byte, err error) {
 	}
 
 	for {
+		var m int
 		switch method {
 		case methodAscii:
-			password, err = passgen.Generate(length, passgen.SetComplete)
+			password, err = passgen.Ascii(length, passgen.SetComplete)
+			m = passgen.SetComplete.Cardinality()
 		case methodHex:
-			password, err = passgen.GenerateHex(length)
+			password, err = passgen.Hex(length)
+			m = 16
 		case methodBase32:
-			password, err = passgen.GenerateBase32(length)
+			password, err = passgen.Base32(length)
+			m = 32
 		}
 
 		if err != nil {
 			return
 		}
 
+		fmt.Printf("m=%d\n", m)
+
 		fmt.Println("Generated password:\n")
-		fmt.Printf("\t%s\n\n", password)
+		fmt.Printf("\t%s (%.2f bits)\n\n",
+			password, passgen.Entropy(length, m))
 
 	accept:
 		for {

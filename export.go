@@ -1,35 +1,44 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"os"
-	"github.com/tvdburgt/passman/crypto"
-	"github.com/tvdburgt/passman/store"
 	"path/filepath"
 )
 
+var cmdExport = &Command{
+	UsageLine: "export [-output file]",
+	Short: "export passman store",
+	Long: `
+JSON-formatted, defaults to stdout.
+	`,
+}
+
+var (
+	exportOutput string
+)
+
+func init() {
+	cmdExport.Run = runExport
+	cmdExport.Flag.StringVar(&exportOutput, "o", "", "")
+	cmdExport.Flag.StringVar(&exportOutput, "output", "", "")
+}
+
+
 // Writes a JSON-formatted output of the password store to stdout or file.
-func cmdExport() (err error) {
-	var file string
-	var store *store.Store
+func runExport(cmd *Command, args []string) {
 	var out *os.File = os.Stdout
 
-	fs := flag.NewFlagSet(os.Args[1], flag.ExitOnError)
-	fs.StringVar(&file, "file", "", "file to write export data to")
-	fs.StringVar(&file, "f", "", "file to write export data to")
-	fs.Parse(os.Args[2:])
-
-	passphrase := readPass("Enter passphrase for '%s'", storePath)
-	defer crypto.Clear(passphrase)
-	if store, err = openStore(passphrase); err != nil {
+	store, err := readPassStore()
+	if err != nil {
 		return
 	}
 
-	if len(file) > 0 {
-		out, err = os.Create(file)
+	if len(exportOutput) > 0 {
+		out, err = os.Create(exportOutput)
+		// TODO: check if file exists
 		if err != nil {
-			return err
+			fatalf("passman export: %s", err)
 		}
 		defer out.Close()
 	}
@@ -40,11 +49,9 @@ func cmdExport() (err error) {
 
 	if out != os.Stdout {
 		if path, err := filepath.Abs(out.Name()); err != nil {
-			return err
+			fatalf("passman export: %s", err)
 		} else {
 			fmt.Printf("Created export file at '%s'\n", path)
 		}
 	}
-
-	return
 }
