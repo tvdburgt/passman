@@ -1,74 +1,149 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"github.com/tvdburgt/passgen"
 	"os"
+	"strconv"
+	"unicode"
 )
 
-func cmdGen() (err error) {
+var cmdGen = &Command{
+	Run: runGen,
+	UsageLine: "gen",
+	Short: "generates a password",
+	Long: `
+long description
 
-	// /usr/share/dict/words can be changed by symlink or with
-	// 'select-default-wordlist' on Debian
+	-n -name <name>		set name
+	-p -password		prompt for password
+	-id <identifier>	change id of existing entry
+	`,
+}
 
-	fmt.Println("generating pass")
-	fmt.Println(passgen.DicewareDict)
+func runGen(cmd *Command, args []string) {
+	_, err := readPassword()
+	if err != nil {
+		fatalf("passman gen: %s", err)
+	}
+}
 
 
-	for i := 0; i < 10; i++ {
-		password, m, _ := passgen.Diceware(6, "")
-		fmt.Printf("%s (%.2f bits)\n", password, passgen.Entropy(6, m))
+// Helper method for reading numbers from stdin; uses default value (def) if
+// input is empty. An error is returned if Atoi can't parse input.
+func scanNumber(def int) (n int, err error) {
+	var s string
+	n = def
+
+	if _, err = fmt.Scanln(&s); err == nil {
+		n, err = strconv.Atoi(s)
+	} else if len(s) == 0 {
+		err = nil
 	}
 
 	return
-
-
-	// TODO: clear()
 }
 
-func gen() {
+func readPassword() (password []byte, err error) {
 
-	size := flag.Uint("len", 64, "password length")
-	n := flag.Uint("n", 1, "number of passwords")
+	var method passMethod
 
-	lower := flag.Bool("lower", false, "lower case characters [a-z]")
-	upper := flag.Bool("upper", false, "upper case characters [A-Z]")
-	digit := flag.Bool("digit", false, "digits [0-9]")
+	fmt.Printf(`Password generation methods:
+  [%d] manual
+  [%d] ascii
+  [%d] hex
+  [%d] base32
+  [%d] diceware
+  
+`, methodManual, methodAscii, methodHex, methodBase32, methodDiceware)
 
-	os.Args = os.Args[1:]
-	flag.Parse()
+	for {
+		for {
+			fmt.Printf("Select method [%d]: ", defaultMethod)
+			if n, err := scanNumber(int(defaultMethod)); err == nil {
+				method = passMethod(n)
+				break
+			}
+		}
 
-	charSet := buildCharSet(*lower, *upper, *digit)
-	var i uint
+		switch method {
+		case methodManual:
+			return readVerifiedPass(), nil
+		case methodAscii, methodHex, methodBase32, methodDiceware:
+			password, err := generatePassword(method)
+			switch {
+			case err != nil:
+				return nil, err
+			case password == nil:
+				return readPassword()
+			default:
+				return password, nil
+			}
+		}
+	}
+	return
+}
 
-	for i = 0; i < *n; i++ {
-		pass, err := passgen.Ascii(int(*size), charSet)
+func generatePassword(method passMethod) (password []byte, err error) {
+	var n int // Password length
+	var m int // Password symbol space
+
+	for {
+		switch method {
+		case methodDiceware:
+			n = defaultWordCount
+			fmt.Printf("Number of words [%d]: ", defaultWordCount)
+		default:
+			n = defaultLen
+			fmt.Printf("Password length [%d]: ", defaultLen)
+		}
+		if n, err = scanNumber(n); err == nil {
+			break
+		}
+	}
+
+	for {
+		switch method {
+		case methodAscii:
+			password, err = passgen.Ascii(n, passgen.SetComplete)
+			m = passgen.SetComplete.Cardinality()
+		case methodHex:
+			password, err = passgen.Hex(n)
+			m = 16
+		case methodBase32:
+			password, err = passgen.Base32(n)
+			m = 32
+		case methodDiceware:
+			password, m, err = passgen.Diceware(n, " ")
+		}
+
 		if err != nil {
-			fmt.Println(err)
 			return
 		}
-		fmt.Printf("%s\n", pass)
-	}
 
+		fmt.Println("Generated password:\n")
+		fmt.Printf("\t%q (%.2f bits)\n\n",
+			password, passgen.Entropy(n, m))
+
+	accept:
+		for {
+			fmt.Print("Accept? [Y/n/u/q] ")
+			action := "y"
+			fmt.Scanln(&action)
+			r := rune(action[0])
+
+			switch unicode.ToLower(r) {
+			case 'y':
+				return
+			case 'n':
+				break accept
+			case 'u':
+				return nil, nil
+			case 'q':
+				// Perhaps exit gracefully, so deferred functions can run...
+				os.Exit(0)
+			}
+		}
+	}
 }
 
-func buildCharSet(lower, upper, digit bool) passgen.CharSet {
-	var set passgen.CharSet = 0
-
-	if lower {
-		set |= passgen.SetLower
-	}
-	if upper {
-		set |= passgen.SetUpper
-	}
-	if digit {
-		set |= passgen.SetDigit
-	}
-
-	if set == 0 {
-		return passgen.SetComplete
-	} else {
-		return set
-	}
-}

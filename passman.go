@@ -222,6 +222,7 @@ var commands = []*Command{
 	cmdExport,
 	cmdGet,
 	cmdList,
+	cmdGen,
 	cmdRm,
 	cmdSet,
 }
@@ -267,56 +268,4 @@ func main() {
 	fmt.Fprintf(os.Stderr, "%[1]s: unknown subcommand %q\nRun '%[1]s help' for usage.\n",
 		os.Args[0], args[0])
 	os.Exit(1)
-
-
-
-
-	// var err error
-	// var cmd string
-
-	// if len(os.Args) < 2 {
-	// 	fmt.Println("usage: passman command [pass store]")
-	// 	return
-	// }
-
-	// cmd = os.Args[1]
-
-	// switch cmd {
-	// case "init":
-	// 	err = cmdInit()
-	// case "list":
-	// 	err = cmdList()
-	// 	/* pass := []byte("") */
-	// 	/* s, err = NewStore("/home/tman/.passstore", os.O_RDONLY, pass) */
-	// case "add":
-	// 	/* if len(os.Args) > 3 { */
-	// 	/* 	pass := readPass("Passphrase:") */
-	// 	/* 	s, err = NewStore("/home/tman/.passstore", os.O_RDWR, pass) */
-	// 	/* 	if err != nil { */
-	// 	/* 		fmt.Println("caught error", err) */
-	// 	/* 		break */
-	// 	/* 	} */
-	// 	/* 	err = add(s, os.Args[2], os.Args[3]) */
-	// 	/* } */
-	// case "export":
-	// 	err = cmdExport()
-	// case "import":
-	// 	err = cmdImport()
-	// case "gen":
-	// 	err = cmdGen()
-	// case "get":
-	// 	err = cmdGet()
-	// case "set":
-	// 	err = cmdSet()
-	// case "rm":
-	// 	err = cmdRm()
-	// case "clip":
-	// 	err = cmdClip()
-	// 	// err = xclip()
-	// }
-
-	// if err != nil {
-	// 	fmt.Fprintln(os.Stderr, "error:", err)
-	// 	// Exit code = 1?
-	// }
 }
