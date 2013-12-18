@@ -15,6 +15,10 @@ displays all entries in store, optionally filtered by a regex pattern
 	`,
 }
 
+func init() {
+	addStoreFlags(cmdList)
+}
+
 func runList(cmd *Command, args []string) {
 	s, err := readPassStore()
 	if err != nil {

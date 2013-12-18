@@ -55,7 +55,7 @@ func runSet(cmd *Command, args []string) {
 	}
 	id := args[0]
 
-	passphrase := readPass("Enter passphrase for '%s'", storePath)
+	passphrase := readPass("Enter passphrase for '%s'", storeFile)
 	defer crypto.Clear(passphrase)
 	s, err := readStore(passphrase)
 	if err != nil {

@@ -13,37 +13,72 @@ import (
 	"log"
 	"strings"
 	// TODO: github.com/seehuhn/password
+	"github.com/tvdburgt/passman/crypto"
+	"github.com/tvdburgt/passman/store"
 	"os"
 	"os/user"
 	"path/filepath"
-	"github.com/tvdburgt/passman/crypto"
-	"github.com/tvdburgt/passman/store"
 )
 
 // TODO: clear derived keys etc.
 
 const (
-	filePermission   = 0600 // rw for owner only
-	storePathKey     = "PASSMAN_STORE"
-	defaultStorePath = ".pass_store" // relative to $HOME
+	storeFilePerm    os.FileMode = 0600 // Store only requires rw perms for owner
+	storeFileEnvKey              = "PASSMAN_STORE"
+	storeFileDefault             = ".pass_store" // Filename is relative to $HOME
 )
 
-var storePath string
+// Global variable for filename of the passman store. This value defaults
+// to the storeFileDefault constant or the value of the environment variable with the
+// key in storeFileEnvKey (if set). The filename can be overridden with the
+// global -f or -file flag.
+var storeFile string
 
-// file presedence:
-//   [1] -file flag (TODO)
-//   [2] $PASSMAN_STORE environment variable
-//   [3] ~/.pass_store
+// Commands lists the available commands and help topics.
+// The order here is the order in which they are printed by 'passman help'.
+var commands = []*Command{
+	cmdExport,
+	cmdClip,
+	cmdGet,
+	cmdInit,
+	cmdList,
+	cmdGen,
+	cmdRm,
+	cmdSet,
+}
+
+// Set default for filename
 func init() {
-	if path := os.Getenv(storePathKey); path != "" {
-		storePath = path
+	if val := os.Getenv(storeFileEnvKey); len(val) > 0 {
+		storeFile = val
 	} else {
 		u, err := user.Current()
 		if err != nil {
 			panic(err)
 		}
-		storePath = filepath.Join(u.HomeDir, defaultStorePath)
+		storeFile = filepath.Join(u.HomeDir, storeFileDefault)
 	}
+}
+
+// A Command is an implementation of a subcommand. The subcommand pattern
+// code is taken from the Go source ($GOROOT/src/cmd).
+type Command struct {
+	// Run runs the command.
+	// The args are the arguments after the command name.
+	Run func(cmd *Command, args []string)
+
+	// UsageLine is the one-line usage message.
+	// The first word in the line is taken to be the command name.
+	UsageLine string
+
+	// Short is the short description shown in the 'go help' output.
+	Short string
+
+	// Long is the long message shown in the 'go help <this-command>' output.
+	Long string
+
+	// Flag is a set of flags specific to this command.
+	Flag flag.FlagSet
 }
 
 // TODO: check for errors (Ctrl-c)
@@ -52,6 +87,7 @@ func readPass(prompt string, args ...interface{}) []byte {
 	return gopass.GetPasswd()
 }
 
+// TODO: ssh-keygen
 func readVerifiedPass() []byte {
 	for {
 		pass1 := readPass("Passphrase")
@@ -67,27 +103,11 @@ func readVerifiedPass() []byte {
 	}
 }
 
-func cmdInit() (err error) {
-	// Read file and make sure it doesn't exist
-	fmt.Printf("Store location [%s]: ", storePath)
-	fmt.Scanln(&storePath)
-	// if _, err := os.Stat(filename); err == nil {
-	// 	return fmt.Errorf("the file '%s' already exists", filename)
-	// }
-
-	// Read passphrase
-	passphrase := readVerifiedPass()
-	defer crypto.Clear(passphrase)
-
-	header := store.NewHeader()
-	s := store.NewStore(header) // create default ctor with header defaults?
-	return writeStore(s, passphrase)
-}
-
 func writeStore(s *store.Store, passphrase []byte) (err error) {
 	var salt []byte
 
-	file, err := os.OpenFile(storePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, filePermission)
+	file, err := os.OpenFile(storeFile,
+		os.O_WRONLY|os.O_CREATE|os.O_TRUNC, storeFilePerm)
 	if err != nil {
 		return err
 	}
@@ -106,14 +126,21 @@ func writeStore(s *store.Store, passphrase []byte) (err error) {
 	return s.Serialize(file, stream, mac)
 }
 
-func readPassStore() (*store.Store, error) {
-	passphrase := readPass("Enter passphrase for '%s'", storePath)
-	defer crypto.Clear(passphrase)
-	return readStore(passphrase)
+// TODO: fix changed behaviour + for functions that don't use this function
+func readPassStore() (s *store.Store, err error) {
+	for i := 0; i < 3; i++ {
+		passphrase := readPass("Enter passphrase for %q", storeFile)
+		defer crypto.Clear(passphrase)
+		s, err = readStore(passphrase)
+		if err == nil || err != store.ErrWrongPass {
+			return
+		}
+	}
+	return
 }
 
 func readStore(passphrase []byte) (s *store.Store, err error) {
-	f, err := os.OpenFile(storePath, os.O_RDONLY, filePermission)
+	f, err := os.OpenFile(storeFile, os.O_RDONLY, storeFilePerm)
 	if err != nil {
 		return
 	}
@@ -173,33 +200,6 @@ func cmdImport() (err error) {
 	return
 }
 
-
-// Using the subcommand code from the Go source.
-// A Command is an implementation of a go command
-// like go build or go fix.
-type Command struct {
-	// Run runs the command.
-	// The args are the arguments after the command name.
-	Run func(cmd *Command, args []string)
-
-	// UsageLine is the one-line usage message.
-	// The first word in the line is taken to be the command name.
-	UsageLine string
-
-	// Short is the short description shown in the 'go help' output.
-	Short string
-
-	// Long is the long message shown in the 'go help <this-command>' output.
-	Long string
-
-	// Flag is a set of flags specific to this command.
-	Flag flag.FlagSet
-
-	// CustomFlags indicates that the command will do its own
-	// flag parsing.
-	CustomFlags bool
-}
-
 // Name returns the command's name: the first word in the usage line.
 func (c *Command) Name() string {
 	name := c.UsageLine
@@ -216,17 +216,6 @@ func (c *Command) Usage() {
 	os.Exit(1)
 }
 
-// Commands lists the available commands and help topics.
-// The order here is the order in which they are printed by 'passman help'.
-var commands = []*Command{
-	cmdExport,
-	cmdGet,
-	cmdList,
-	cmdGen,
-	cmdRm,
-	cmdSet,
-}
-
 func usage() {
 	fmt.Fprintln(os.Stderr, "passman usage")
 	os.Exit(1)
@@ -235,6 +224,12 @@ func usage() {
 func fatalf(format string, args ...interface{}) {
 	log.Printf(format, args...)
 	os.Exit(1)
+}
+
+// Adds global flags for store-specific commands
+func addStoreFlags(cmd *Command) {
+	cmd.Flag.StringVar(&storeFile, "f", storeFile, "")
+	cmd.Flag.StringVar(&storeFile, "file", storeFile, "")
 }
 
 func main() {
@@ -249,17 +244,12 @@ func main() {
 	// Don't include date etc. in log output
 	log.SetFlags(0)
 
-
 	for _, cmd := range commands {
 		if cmd.Name() == args[0] && cmd.Run != nil {
-			// TODO: CustomFlags
-			cmd.Flag.Usage = func() { cmd.Usage() }
-			if cmd.CustomFlags {
-				args = args[1:]
-			} else {
-				cmd.Flag.Parse(args[1:])
-				args = cmd.Flag.Args()
-			}
+			// cmd.Flag.Usage = func() { cmd.Usage() }
+			cmd.Flag.Usage = cmd.Usage
+			cmd.Flag.Parse(args[1:])
+			args = cmd.Flag.Args()
 			cmd.Run(cmd, args)
 			os.Exit(0)
 		}

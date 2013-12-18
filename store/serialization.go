@@ -11,6 +11,8 @@ import (
 	"fmt"
 )
 
+// TODO: implement error
+var ErrWrongPass = errors.New("incorrect passphrase")
 
 func (h* Header) MarshalBinary() (data []byte, err error) {
 
@@ -97,7 +99,7 @@ func (s *Store) Deserialize(in io.Reader, size int, cipherStream cipher.Stream, 
 	plainReader.Read(make([]byte, s.Header.Size()-mac.Size()))
 
 	if !hmac.Equal(s.Header.HMAC[:], mac.Sum(nil)) {
-		return errors.New("incorrect passphrase")
+		return ErrWrongPass
 	}
 
 	plainReader.Read(make([]byte, mac.Size()))
@@ -117,7 +119,7 @@ func (s *Store) Deserialize(in io.Reader, size int, cipherStream cipher.Stream, 
 	// fmt.Printf("hmac=%x\n", mac.Sum(nil))
 
 	if !hmac.Equal(h, mac.Sum(nil)) {
-		return errors.New("incorrect passphrase")
+		return ErrWrongPass
 	}
 
 	if err := json.Unmarshal(content, &s.Entries); err != nil {

@@ -10,15 +10,31 @@ import (
 	"time"
 )
 
-func cmdClip() (err error) {
-	if err = clipboard.Setup(); err != nil {
-		return
+var cmdClip = &Command{
+	Run: runClip,
+	UsageLine: "clip identifier",
+	Short: "display an individual entry",
+	Long: `
+get displays the content of a single passman entry. The identifier must be an
+exact match. To search or display multiple entries, see passman list.
+	`,
+}
+
+func runClip(cmd *Command, args []string) {
+	// if len(args) < 1 {
+	// 	fatalf("passman clip: missing identifier")
+	// }
+	// id := args[0]
+
+	if err := clipboard.Setup(); err != nil {
+		fatalf("passman clip: %s", err)
 	}
 
 	// TODO: run event loop in goroutine
 	// TODO: add verbose flag
-	if err = clipboard.Put([]byte("dit is een testje\n")); err != nil {
-		return
+	err := clipboard.Put([]byte("examplepassw0rd"));
+	if err != nil {
+		fatalf("passman clip: %s", err)
 	}
 
 	time.Sleep(5 * time.Second)

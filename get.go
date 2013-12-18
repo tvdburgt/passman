@@ -14,7 +14,6 @@ exact match. To search or display multiple entries, see passman list.
 	`,
 }
 
-
 func runGet(cmd *Command, args []string) {
 	if len(args) < 1 {
 		fatalf("passman get: missing identifier")
