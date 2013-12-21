@@ -8,6 +8,22 @@ import (
 	"unicode"
 )
 
+type passMethod int
+
+const (
+	methodManual passMethod = iota + 1
+	methodAscii
+	methodHex
+	methodBase32
+	methodDiceware
+)
+
+const (
+	defaultMethod = methodAscii
+	defaultLen = 64
+	defaultDicewareLen = 6
+)
+
 var cmdGen = &Command{
 	Run: runGen,
 	UsageLine: "gen",
@@ -34,16 +50,15 @@ func runGen(cmd *Command, args []string) {
 func scanNumber(def int) (n int, err error) {
 	var s string
 	n = def
-
 	if _, err = fmt.Scanln(&s); err == nil {
 		n, err = strconv.Atoi(s)
 	} else if len(s) == 0 {
 		err = nil
 	}
-
 	return
 }
 
+// TODO: scheme
 func readPassword() (password []byte, err error) {
 
 	var method passMethod
@@ -91,11 +106,11 @@ func generatePassword(method passMethod) (password []byte, err error) {
 	for {
 		switch method {
 		case methodDiceware:
-			n = defaultWordCount
-			fmt.Printf("Number of words [%d]: ", defaultWordCount)
+			n = defaultDicewareLen
+			fmt.Printf("Number of words [%d]: ", n)
 		default:
 			n = defaultLen
-			fmt.Printf("Password length [%d]: ", defaultLen)
+			fmt.Printf("Password length [%d]: ", n)
 		}
 		if n, err = scanNumber(n); err == nil {
 			break

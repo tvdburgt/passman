@@ -118,10 +118,7 @@ func writeStore(s *store.Store, passphrase []byte) (err error) {
 	}
 	copy(s.Header.Salt[:], salt)
 
-	stream, mac, err := crypto.InitStreamParams(passphrase, salt)
-	if err != nil {
-		return err
-	}
+	stream, mac := crypto.InitStreamParams(passphrase, salt)
 
 	return s.Serialize(file, stream, mac)
 }
@@ -159,11 +156,7 @@ func readStore(passphrase []byte) (s *store.Store, err error) {
 		return
 	}
 
-	stream, mac, err := crypto.InitStreamParams(passphrase, header.Salt[:])
-	if err != nil {
-		return
-	}
-
+	stream, mac := crypto.InitStreamParams(passphrase, header.Salt[:])
 	s = store.NewStore(header)
 
 	// Rewind file offset to origin of file (offset is modified by
@@ -227,6 +220,7 @@ func fatalf(format string, args ...interface{}) {
 }
 
 // Adds global flags for store-specific commands
+// TODO: make store path absolute (filepath.Abs)
 func addStoreFlags(cmd *Command) {
 	cmd.Flag.StringVar(&storeFile, "f", storeFile, "")
 	cmd.Flag.StringVar(&storeFile, "file", storeFile, "")

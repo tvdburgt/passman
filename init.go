@@ -23,7 +23,7 @@ func init() {
 func runInit(cmd *Command, args []string) {
 	// Read file and make sure it doesn't exist
 	if _, err := os.Stat(storeFile); err == nil {
-		fatalf("passman init: the file %q already exists", storeFile)
+		fatalf("passman init: '%s' already exists", storeFile)
 	}
 
 	// Read passphrase
@@ -38,5 +38,5 @@ func runInit(cmd *Command, args []string) {
 		fatalf("passman init: %s", err)
 	}
 
-	fmt.Printf("Initialized empty store: %q\n", storeFile)
+	fmt.Printf("Initialized empty passman store: '%s'\n", storeFile)
 }

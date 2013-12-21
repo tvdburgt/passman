@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/tvdburgt/passman/crypto"
 	"io"
 	"regexp"
 	"sort"
@@ -25,7 +26,6 @@ import (
 
 const (
 	Version       = 0x00
-	monthDuration = 2.63e+6
 )
 
 // TODO: check endianness
@@ -67,6 +67,12 @@ func (s *Store) Export(out io.Writer) (err error) {
 	out.Write(content)
 	fmt.Fprintln(out)
 	return
+}
+
+func (s *Store) Close() () {
+	for _, e := range s.Entries {
+		crypto.Clear(e.Password) // crypto dependency
+	}
 }
 
 // format: %#v

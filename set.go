@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"github.com/tvdburgt/passman/crypto"
 	"github.com/tvdburgt/passman/store"
+	"strings"
 )
 
 var cmdSet = &Command{
@@ -25,29 +28,42 @@ func init() {
 	cmdSet.Flag.BoolVar(&setPassword, "p", false, "")
 	cmdSet.Flag.BoolVar(&setPassword, "password", false, "")
 	cmdSet.Flag.StringVar(&setId, "id", "", "")
+	cmdSet.Flag.Var(setMeta, "meta", "")
 }
 
-type passMethod int
-
-const (
-	methodManual passMethod = iota + 1
-	methodAscii
-	methodHex
-	methodBase32
-	methodDiceware
-)
-
-const (
-	defaultMethod = methodAscii
-	defaultLen = 64
-	defaultWordCount = 6
-)
 
 var (
 	setName string
 	setPassword bool
 	setId string
+	setMeta = make(metadata)
 )
+
+type metadata map[string]string
+
+// I think this only gets called when using the default flag.Usage
+func (m metadata) String() string {
+	var buf bytes.Buffer
+	if len(m) == 0 {
+		return "(empty)"
+	}
+	for key, val := range m {
+		line := fmt.Sprintf("%s=%s\n", key, val)
+		buf.WriteString(line)
+	}
+	return buf.String()
+}
+
+func (m metadata) Set(data string) (err error) {
+	pair := strings.Split(data, "=")
+	if len(pair) == 1 {
+		return errors.New("invalid key-value format")
+	}
+	// Use first '=' symbol as separator, concatenate the rest if needed
+	key, val := pair[0], strings.Join(pair[1:], "")
+	m[key] = val
+	return
+}
 
 func runSet(cmd *Command, args []string) {
 	if len(args) < 1 {
@@ -59,23 +75,21 @@ func runSet(cmd *Command, args []string) {
 	defer crypto.Clear(passphrase)
 	s, err := readStore(passphrase)
 	if err != nil {
-		return
+		fatalf("passman set: %s", err)
 	}
 
 	// Fetch entry
-	e, existing := s.Entries[id]
-
-	// New entry; create one
-	if !existing {
+	e, ok := s.Entries[id]
+	if !ok {
 		fmt.Printf("Entry %q doesn't exist, creating...\n", id)
 		e = new(store.Entry)
 		s.Entries[id] = e
+		setPassword = true // Always prompt for password for new entries
 	} else {
 		fmt.Printf("Found entry %q\n", id)
-	}
-
-	if existing && cmd.Flag.NFlag() == 0 {
-		fatalf("passman set: no arguments to set for %q", id)
+		if cmd.Flag.NFlag() == 0 {
+			fatalf("passman set: no arguments to set for %q", id)
+		}
 	}
 
 	if len(setName) > 0 {
@@ -90,7 +104,21 @@ func runSet(cmd *Command, args []string) {
 		delete(s.Entries, id)
 	}
 
-	if !existing || setPassword {
+	// Merge metadata modifications with entry
+	if len(setMeta) > 0 {
+		if e.Metadata == nil {
+			e.Metadata = make(map[string]string)
+		}
+		for key, val := range setMeta {
+			if len(val) == 0 {
+				delete(e.Metadata, key)
+			} else {
+				e.Metadata[key] = val
+			}
+		}
+	}
+
+	if setPassword {
 		if password, err := readPassword(); err != nil {
 			fatalf("passman set: %s", err)
 		} else {
@@ -106,5 +134,5 @@ func runSet(cmd *Command, args []string) {
 		return
 	}
 
-	fmt.Println(e)
+	fmt.Print(e)
 }

@@ -24,12 +24,13 @@ func runGet(cmd *Command, args []string) {
 	if err != nil {
 		return
 	}
+	defer s.Close()
 
 	e, ok := s.Entries[id]
 	if !ok {
 		fatalf("passman get: no such entry %q", id)
 	}
 
-	fmt.Println(e)
+	fmt.Print(e)
 }
 

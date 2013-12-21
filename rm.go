@@ -15,13 +15,13 @@ exact match. To search or display multiple entries, see passman list.
 	`,
 }
 
+// TODO: change to del?
 func runRm(cmd *Command, args []string) {
 	if len(args) < 1 {
 		fatalf("passman rm: missing identifier")
 	}
 	id := args[0]
 
-	// TODO: create wrapper fn
 	passphrase := readPass("Enter passphrase for '%s'", storeFile)
 	defer crypto.Clear(passphrase)
 	s, err := readStore(passphrase)
