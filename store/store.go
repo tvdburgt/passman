@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	Version       = 0x00
+	Version = 0x00
 )
 
 // TODO: check endianness
@@ -47,12 +47,15 @@ type Store struct {
 	Entries map[string]*Entry `json:"entries"`
 }
 
-func NewHeader() *Header {
-	return &Header{Version: Version, Signature: Signature}
-}
+// func NewHeader() *Header {
+// 	return &Header{Version: Version, Signature: Signature}
+// }
 
-func NewStore(header *Header) *Store {
-	return &Store{*header, make(map[string]*Entry)}
+func NewStore() *Store {
+	return &Store{
+		Header:  Header{Version: Version, Signature: Signature},
+		Entries: make(map[string]*Entry),
+	}
 }
 
 func (h *Header) Size() int {
@@ -69,7 +72,19 @@ func (s *Store) Export(out io.Writer) (err error) {
 	return
 }
 
-func (s *Store) Close() () {
+func (s *Store) Import(in io.Reader) (err error) {
+	dec := json.NewDecoder(in)
+	if err = dec.Decode(s); err != nil {
+		return
+	}
+	if s.Version != Version {
+		return fmt.Errorf("incorrect store version %d (expected %d)",
+			s.Version, Version)
+	}
+	return
+}
+
+func (s *Store) Close() {
 	for _, e := range s.Entries {
 		crypto.Clear(e.Password) // crypto dependency
 	}

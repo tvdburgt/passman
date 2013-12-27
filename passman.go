@@ -6,7 +6,6 @@ package main
 
 import (
 	"bytes"
-	"errors"
 	"flag"
 	"fmt"
 	"github.com/howeyc/gopass"
@@ -40,6 +39,7 @@ var commands = []*Command{
 	cmdExport,
 	cmdClip,
 	cmdGet,
+	cmdImport,
 	cmdInit,
 	cmdList,
 	cmdGen,
@@ -151,13 +151,14 @@ func readStore(passphrase []byte) (s *store.Store, err error) {
 
 	// We need to serialize the header before the rest of the file can be
 	// serialized
-	header := new(store.Header)
+	var header store.Header
 	if err = header.Deserialize(f); err != nil {
 		return
 	}
 
 	stream, mac := crypto.InitStreamParams(passphrase, header.Salt[:])
-	s = store.NewStore(header)
+	s = store.NewStore()
+	s.Header = header
 
 	// Rewind file offset to origin of file (offset is modified by
 	// header.Deserialize).
@@ -165,31 +166,6 @@ func readStore(passphrase []byte) (s *store.Store, err error) {
 
 	// Attempt to deserialize store
 	err = s.Deserialize(f, int(fi.Size()), stream, mac)
-	return
-}
-
-func cmdImport() (err error) {
-	var flagFormat string
-	const usage = "import file format (passman, keepass)"
-
-	if len(os.Args) < 3 {
-		return errors.New("missing file argument")
-	}
-	filename := os.Args[2]
-
-	fs := flag.NewFlagSet(os.Args[1], flag.ExitOnError)
-	fs.StringVar(&flagFormat, "format", "passman", usage)
-	fs.StringVar(&flagFormat, "f", "passman", usage)
-	fs.Parse(os.Args[3:])
-
-	switch flagFormat {
-	case "passman":
-	case "keepass":
-	default:
-		return fmt.Errorf("unknown import file format '%s'", flagFormat)
-	}
-
-	fmt.Println(filename)
 	return
 }
 
