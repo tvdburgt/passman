@@ -10,7 +10,8 @@ import (
 )
 
 type list struct {
-	Entries []entry `xml:"pwentry"`
+	XMLName xml.Name `xml:"pwlist"`
+	Entries []entry  `xml:"pwentry"`
 }
 
 type entry struct {

@@ -12,8 +12,9 @@ import (
 )
 
 type database struct {
-	Generator *string `xml:"Meta>Generator"`
-	Groups    []group `xml:"Root>Group"`
+	XMLName   xml.Name `xml:"KeePassFile"`
+	Generator *string  `xml:"Meta>Generator"`
+	Groups    []group  `xml:"Root>Group"`
 }
 
 type group struct {
@@ -40,10 +41,10 @@ func ImportXml(in io.Reader) (s *store.Store, err error) {
 		return
 	}
 	if db.Generator == nil {
-		return nil, errors.New("invalid KeePass 2 XML file")
+		return nil, errors.New("invalid format: missing 'Generator' tag")
 	}
 	if *db.Generator != fileGenerator {
-		return nil, fmt.Errorf("file generator is '%s' (expected '%s')",
+		return nil, fmt.Errorf("invalid format: 'Generator' value is '%s' (expected '%s')",
 			db.Generator, fileGenerator)
 	}
 	for _, g := range db.Groups {

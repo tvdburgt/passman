@@ -69,7 +69,6 @@ func importStore(file *os.File) (s *store.Store, err error) {
 	imprt.ImportGroups = importGroups
 	imprt.NormalizeEntries = importNormalize
 
-	// TODO: implement stricter parsing
 	switch importFormat {
 	case "passman":
 		s = store.NewStore()

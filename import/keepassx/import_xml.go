@@ -10,7 +10,8 @@ import (
 )
 
 type database struct {
-	Groups []group `xml:"group"`
+	XMLName xml.Name `xml:"database"`
+	Groups  []group  `xml:"group"`
 }
 
 type group struct {
