@@ -25,6 +25,7 @@ func runList(cmd *Command, args []string) {
 		fatalf("passman list: %s", err)
 	}
 
+	// TODO: posix or not?
 	var pattern *regexp.Regexp
 	if len(args) > 0 {
 		pattern, err = regexp.Compile(args[0])

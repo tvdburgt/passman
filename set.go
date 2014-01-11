@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"github.com/tvdburgt/passman/crypto"
@@ -11,7 +10,7 @@ import (
 
 var cmdSet = &Command{
 	UsageLine: "set [options] <id>",
-	Short: "create or modify a passman entry",
+	Short:     "create or modify a passman entry",
 	Long: `
 long description
 
@@ -21,37 +20,27 @@ long description
 	`,
 }
 
+var (
+	setName     string
+	setId       string
+	setPassword = false
+	setMeta     = make(metadata)
+)
+
 func init() {
 	cmdSet.Run = runSet
-	cmdSet.Flag.StringVar(&setName, "n", "", "")
 	cmdSet.Flag.StringVar(&setName, "name", "", "")
-	cmdSet.Flag.BoolVar(&setPassword, "p", false, "")
-	cmdSet.Flag.BoolVar(&setPassword, "password", false, "")
+	cmdSet.Flag.BoolVar(&setPassword, "password", setPassword, "")
 	cmdSet.Flag.StringVar(&setId, "id", "", "")
 	cmdSet.Flag.Var(setMeta, "meta", "")
 }
 
+type metadata store.Metadata
 
-var (
-	setName string
-	setPassword bool
-	setId string
-	setMeta = make(metadata)
-)
-
-type metadata map[string]string
-
-// I think this only gets called when using the default flag.Usage
+// This only gets called when using the default flag.Usage.
+// Only required for satisfying the the flag.Value interface.
 func (m metadata) String() string {
-	var buf bytes.Buffer
-	if len(m) == 0 {
-		return "(empty)"
-	}
-	for key, val := range m {
-		line := fmt.Sprintf("%s=%s\n", key, val)
-		buf.WriteString(line)
-	}
-	return buf.String()
+	return fmt.Sprintf("%#v", m)
 }
 
 func (m metadata) Set(data string) (err error) {
@@ -73,7 +62,7 @@ func runSet(cmd *Command, args []string) {
 
 	passphrase := readPass("Enter passphrase for '%s'", storeFile)
 	defer crypto.Clear(passphrase)
-	s, err := readStore(passphrase)
+	s, err := decryptStore(passphrase)
 	if err != nil {
 		fatalf("passman set: %s", err)
 	}
@@ -82,7 +71,7 @@ func runSet(cmd *Command, args []string) {
 	e, ok := s.Entries[id]
 	if !ok {
 		fmt.Printf("Entry %q doesn't exist, creating...\n", id)
-		e = new(store.Entry)
+		e = store.NewEntry()
 		s.Entries[id] = e
 		setPassword = true // Always prompt for password for new entries
 	} else {
@@ -92,11 +81,11 @@ func runSet(cmd *Command, args []string) {
 		}
 	}
 
-	if len(setName) > 0 {
+	if setName != "" {
 		e.Name = setName
 	}
 
-	if len(setId) > 0 {
+	if setId != "" {
 		if _, ok := s.Entries[setId]; ok {
 			fatalf("passman set: entry with id %q already exists", setId)
 		}
@@ -105,16 +94,11 @@ func runSet(cmd *Command, args []string) {
 	}
 
 	// Merge metadata modifications with entry
-	if len(setMeta) > 0 {
-		if e.Metadata == nil {
-			e.Metadata = make(map[string]string)
-		}
-		for key, val := range setMeta {
-			if len(val) == 0 {
-				delete(e.Metadata, key)
-			} else {
-				e.Metadata[key] = val
-			}
+	for key, val := range setMeta {
+		if len(val) == 0 {
+			delete(e.Metadata, key)
+		} else {
+			e.Metadata[key] = val
 		}
 	}
 
@@ -129,10 +113,7 @@ func runSet(cmd *Command, args []string) {
 		e.Touch()
 	}
 
-	err = writeStore(s, passphrase)
-	if err != nil {
-		return
-	}
+	writeStore(s, passphrase)
 
 	fmt.Print(e)
 }

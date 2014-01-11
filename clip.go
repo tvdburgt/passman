@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"github.com/tvdburgt/passman/clipboard"
 	"github.com/tvdburgt/passman/store"
+	"os"
+	"os/signal"
 	"strings"
 	"time"
 )
 
 var cmdClip = &Command{
-	UsageLine: "clip identifier",
+	UsageLine: "clip [-value value] [-timeout timeout] [-persist] id",
 	Short:     "display an individual entry",
 	Long: `
 get displays the content of a single passman entry. The identifier must be an
@@ -17,97 +19,110 @@ exact match. To search or display multiple entries, see passman list.
 	`,
 }
 
-const clipTimeoutDefault = 20 * time.Second
+const closeMsg = "Closing in %s..."
 
 var (
-	clipTimeout = clipTimeoutDefault
+	clipTimeout = 20 * time.Second
 	clipPersist = false
-	clipValue   = "password"
-	// TODO: -verbose?
+	clipField   = "password"
 )
 
 func init() {
 	cmdClip.Run = runClip
 	cmdClip.Flag.DurationVar(&clipTimeout, "timeout", clipTimeout, "")
 	cmdClip.Flag.BoolVar(&clipPersist, "persist", clipPersist, "")
-	cmdClip.Flag.StringVar(&clipValue, "value", clipValue, "")
+	cmdClip.Flag.StringVar(&clipField, "field", clipField, "")
 }
 
 func runClip(cmd *Command, args []string) {
 	if len(args) < 1 {
-		fatalf("passman clip: missing identifier")
+		cmd.Usage()
 	}
 	id := args[0]
 
 	if clipTimeout <= 0 {
-		fatalf("passman clip: nonpositive timeout")
+		fatalf("Invalid timeout. Timeout must be a positive duration.")
 	}
 
-	s, err := readPassStore()
-	if err != nil {
-		fatalf("passman clip: %s", err)
-	}
+	s := openStore()
 	e, ok := s.Entries[id]
 	if !ok {
-		fatalf("passman get: no such entry '%s'", id)
+		fatalf("Entry '%s' does not exist", id)
 	}
 
 	value := getValue(e)
-
 	if err := clipboard.Setup(); err != nil {
-		fatalf("passman clip: %s", err)
+		fatalf("Clipboard error: %s", err)
 	}
 	creq, cerr, err := clipboard.Put(value)
 	if err != nil {
-		fatalf("passman clip: %s", err)
+		fatalf("Clipboard error: %s", err)
 	}
 
 	fmt.Println("Listening for clipboard requests...")
 
+	sigch := make(chan os.Signal, 1)
+	signal.Notify(sigch, os.Interrupt)
+
+	ticker := time.Tick(time.Second)
+
+	var msg string
+	write := func(s string, args... interface{}) {
+		fmt.Print("\r", strings.Repeat(" ", len(msg)+1), "\r")
+		fmt.Printf(s, args...)
+		msg = s
+	}
+
+	write("Closing in %s...", clipTimeout)
+
 	for {
 		select {
 		case req := <-creq:
-			fmt.Printf("Password requested by '%s'\n", req)
+			write("Password requested by '%s'\n", req)
 			if !clipPersist {
-				fmt.Println("Exiting... Add '-persist' flag to allow additional requests.")
+				fmt.Println("Exiting. Add '-persist' flag to allow additional requests.")
 				return
 			}
+
 		case err := <-cerr:
-			fatalf("passman clip: %s", err)
+			write("")
+			fatalf("Clipboard error: %s", err)
+
+		case <-ticker:
+			clipTimeout -= time.Second
+			write("Closing in %s...", clipTimeout)
+
 		case <-time.After(clipTimeout):
-			fmt.Printf("Reached timeout (%s), exiting.", clipTimeout)
-			if clipTimeout == clipTimeoutDefault {
-				fmt.Print(" Duration can be changed with the '-timeout' flag.")
-			}
-			fmt.Println()
+			write("Reached timeout. Exiting.\n")
 			return
+
+		case <-sigch:
+			write("Received interrupt. Exiting.\n")
+			os.Exit(1)
 		}
 	}
 }
 
-func validValues(e *store.Entry) (values []string) {
-	values = make([]string, 2, len(e.Metadata)+2)
-	values[0] = "'password'"
-	values[1] = "'name'"
+func validFields(e *store.Entry) []string {
+	fields := []string{"'password'", "'name'"}
 	for key, _ := range e.Metadata {
-		values = append(values, fmt.Sprintf("'%s'", key))
+		fields = append(fields, fmt.Sprintf("'%s'", key))
 	}
-	return
+	return fields
 }
 
 func getValue(e *store.Entry) []byte {
-	switch clipValue {
+	switch clipField {
 	case "password":
 		return e.Password
 	case "name":
 		return []byte(e.Name)
 	default:
-		if value, ok := e.Metadata[clipValue]; ok {
+		if value, ok := e.Metadata[clipField]; ok {
 			return []byte(value)
 		}
-		// TODO: fatalf here or bubble error to runClip?
-		fatalf("passman clip: invalid value '%s' (valid values: %s)",
-			clipValue, strings.Join(validValues(e), ", "))
+		fatalf("Invalid field '%s' (possible fields: %s)",
+			clipField, strings.Join(validFields(e), ", "))
 	}
 	return nil
 }

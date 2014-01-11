@@ -9,10 +9,14 @@ import (
 
 var cmdInit = &Command{
 	Run:       runInit,
-	UsageLine: "init [-f file]",
-	Short:     "export passman store",
+	UsageLine: "init [-f <file>]",
+	Short:     "create empty passman store file",
 	Long: `
 JSON-formatted, defaults to stdout.
+
+  -f -file <file>
+	override default store file (default file location is $HOME/.pass_store
+	or $PASS_STORE, if set)
 	`,
 }
 
@@ -23,20 +27,11 @@ func init() {
 func runInit(cmd *Command, args []string) {
 	// Read file and make sure it doesn't exist
 	if _, err := os.Stat(storeFile); err == nil {
-		fatalf("passman init: '%s' already exists", storeFile)
+		// fatalf("passman init: '%s' already exists", storeFile)
 	}
-
-	// Read passphrase
-	passphrase := readVerifiedPass()
+	passphrase := verifyPassphrase()
 	defer crypto.Clear(passphrase)
-
-	header := store.NewHeader()
-	s := store.NewStore(header) // create default ctor with header defaults?
-
-	err := writeStore(s, passphrase)
-	if err != nil {
-		fatalf("passman init: %s", err)
-	}
-
-	fmt.Printf("Initialized empty passman store: '%s'\n", storeFile)
+	s := store.NewStore(store.NewHeader())
+	writeStore(s, passphrase)
+	fmt.Printf("Initialized empty passman store at '%s'.\n", storeFile)
 }

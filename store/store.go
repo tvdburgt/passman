@@ -21,45 +21,48 @@ import (
 	"sort"
 	"strings"
 	"text/tabwriter"
-	"unsafe"
 )
+
+const Version = 0x0
 
 const (
-	Version = 0x00
+	defaultLogN = 14
+	defaultR    = 8
+	defaultP    = 1
 )
 
-// TODO: check endianness
-var Signature = [7]byte{0x6e, 0x50, 0x41, 0x53, 0x4d, 0x41, 0x4e}
+var Signature = [7]byte{0x70, 0x61, 0x73, 0x73, 0x6d, 0x61, 0x6e}
 
-//var fileSignature = []byte("passman")
-
-// Use nested struct?
-type Header struct {
-	Signature [7]byte  `json:"-"`
-	Version   byte     `json:"version"`
-	Salt      [32]byte `json:"-"`
-	HMAC      [32]byte `json:"-"`
+type ScryptParams struct {
+	LogN byte   `json:"log_n"` // Work factor (iteration count)
+	R    uint32 `json:"r"`     // Block size underlying hash
+	P    uint32 `json:"p"`     // Parallelization factor
 }
+
+type Header struct {
+	Signature [7]byte      `json:"-"`
+	Version   byte         `json:"version"`
+	Salt      [32]byte     `json:"-"`
+	Params    ScryptParams `json:"params"`
+}
+
+type Entries map[string]*Entry
 
 type Store struct {
-	Header `json:"header"`
-	// Entries map[string]*Entry `json:"entries"`
-	Entries map[string]*Entry `json:"entries"`
+	Header  `json:"header"`
+	Entries `json:"entries"`
 }
 
-// func NewHeader() *Header {
-// 	return &Header{Version: Version, Signature: Signature}
-// }
-
-func NewStore() *Store {
-	return &Store{
-		Header:  Header{Version: Version, Signature: Signature},
-		Entries: make(map[string]*Entry),
+func NewHeader() *Header {
+	return &Header{
+		Version:   Version,
+		Signature: Signature,
+		Params:    ScryptParams{14, 8, 1},
 	}
 }
 
-func (h *Header) Size() int {
-	return int(unsafe.Sizeof(*h))
+func NewStore(h *Header) *Store {
+	return &Store{*h, make(Entries)}
 }
 
 func (s *Store) Export(out io.Writer) (err error) {
@@ -90,10 +93,10 @@ func (s *Store) Close() {
 	}
 }
 
-// format: %#v
-func (s *Store) GoString() string {
-	return ""
-}
+// // format: %#v
+// func (s *Store) GoString() string {
+// 	return ""
+// }
 
 // Returns entry ids with given prefix in sorted order
 func (s *Store) ids(pattern *regexp.Regexp) []string {
@@ -115,7 +118,7 @@ func (s *Store) List(out io.Writer, pattern *regexp.Regexp) {
 	_ = strings.Repeat("-", n)
 	for _, id := range s.ids(pattern) {
 		e := s.Entries[id]
-		months := e.Age().Seconds() / monthDuration
+		months := e.Age().Seconds() / secondsPerMonth
 		fmt.Fprintf(w, "%s\t%s\t%.1f months\n",
 			id,
 			e.Name,

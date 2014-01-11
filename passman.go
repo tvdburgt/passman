@@ -6,15 +6,19 @@ package main
 
 import (
 	"bytes"
+	"code.google.com/p/go.crypto/ssh/terminal"
+	"crypto/cipher"
 	"flag"
 	"fmt"
 	"github.com/howeyc/gopass"
 	"log"
 	"strings"
 	// TODO: github.com/seehuhn/password
+	"github.com/tvdburgt/passman/cache"
 	"github.com/tvdburgt/passman/crypto"
 	"github.com/tvdburgt/passman/store"
 	"os"
+	"os/signal"
 	"os/user"
 	"path/filepath"
 )
@@ -22,9 +26,10 @@ import (
 // TODO: clear derived keys etc.
 
 const (
-	storeFilePerm    os.FileMode = 0600 // Store only requires rw perms for owner
-	storeFileEnvKey              = "PASSMAN_STORE"
-	storeFileDefault             = ".pass_store" // Filename is relative to $HOME
+	storeFilePerm       os.FileMode = 0600 // Store only requires rw perm for owner
+	storeFileCreateFlag             = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+	storeFileEnvKey                 = "PASSMAN_STORE"
+	storeFileDefault                = ".pass_store" // Relative to $HOME
 )
 
 // Global variable for filename of the passman store. This value defaults
@@ -36,15 +41,16 @@ var storeFile string
 // Commands lists the available commands and help topics.
 // The order here is the order in which they are printed by 'passman help'.
 var commands = []*Command{
-	cmdExport,
-	cmdClip,
 	cmdGet,
-	cmdImport,
-	cmdInit,
-	cmdList,
-	cmdGen,
-	cmdRm,
 	cmdSet,
+	cmdClip,
+	cmdInit,
+	cmdImport,
+	cmdExport,
+	cmdList,
+	cmdStat,
+	cmdGen,
+	cmdDelete,
 }
 
 // Set default for filename
@@ -81,54 +87,118 @@ type Command struct {
 	Flag flag.FlagSet
 }
 
+func readPassphrase(prompt string, args ...interface{}) []byte {
+	fd := int(os.Stdin.Fd())
+	oldState, err := terminal.GetState(fd)
+	if err != nil {
+		panic("could not get state of terminal: " + err.Error())
+	}
+	defer terminal.Restore(fd, oldState)
+
+	// Restore terminal when SIGINT is caught
+	sigch := make(chan os.Signal, 1)
+	defer close(sigch)
+	signal.Notify(sigch, os.Interrupt)
+	defer signal.Stop(sigch)
+	go func() {
+		for _ = range sigch {
+			terminal.Restore(fd, oldState)
+			fmt.Println("\npassman: Received interrupt... exiting.")
+			os.Exit(1)
+		}
+	}()
+
+	prompt = fmt.Sprintf(prompt+": ", args...)
+	fmt.Print(prompt)
+	p, err := terminal.ReadPassword(fd)
+	if err != nil {
+		panic("failed to read passphrase: " + err.Error())
+	}
+	fmt.Print("\r", strings.Repeat(" ", len(prompt)), "\r")
+	return p
+}
+
 // TODO: check for errors (Ctrl-c)
 func readPass(prompt string, args ...interface{}) []byte {
 	fmt.Printf(prompt+": ", args...)
 	return gopass.GetPasswd()
 }
 
-// TODO: ssh-keygen
+func verifyPassphrase() []byte {
+	for {
+		p1 := readPassphrase("Enter passphrase")
+		p2 := readPassphrase("Verify passphrase")
+		if bytes.Equal(p1, p2) {
+			if len(p1) == 0 {
+				// fatalf("Invalid passphrase, aborting.")
+			}
+			crypto.Clear(p2)
+			return p1
+		}
+		crypto.Clear(p1, p2)
+		fmt.Fprintln(os.Stderr, "Passphrases do not match. Try again.")
+	}
+}
+
 func readVerifiedPass() []byte {
 	for {
-		pass1 := readPass("Passphrase")
-		pass2 := readPass("Passphrase verification")
-
+		pass1 := readPassphrase("Enter passphrase")
+		pass2 := readPassphrase("Verify passphrase")
 		if bytes.Equal(pass1, pass2) {
 			crypto.Clear(pass2)
 			return pass1
 		}
-
-		fmt.Fprintln(os.Stderr, "error: passphrases don't match, try again")
 		crypto.Clear(pass1, pass2)
+		fmt.Fprintln(os.Stderr, "Passphrases don't match, try again.")
 	}
 }
 
-func writeStore(s *store.Store, passphrase []byte) (err error) {
-	var salt []byte
-
-	file, err := os.OpenFile(storeFile,
-		os.O_WRONLY|os.O_CREATE|os.O_TRUNC, storeFilePerm)
+func writeStore(s *store.Store, passphrase []byte) {
+	file, err := os.OpenFile(storeFile, storeFileCreateFlag, storeFilePerm)
 	if err != nil {
-		return err
+		fatalf("Unable to write to store: %s", err)
 	}
 	defer file.Close()
 
-	if salt, err = crypto.GenerateRandomSalt(); err != nil {
-		return
+	// Generate a new random salt
+	err = crypto.Rand(s.Header.Salt[:])
+	if err != nil {
+		fatalf("Failed to generate salt: %s", err)
 	}
-	copy(s.Header.Salt[:], salt)
 
-	stream, mac := crypto.InitStreamParams(passphrase, salt)
+	p := s.Header.Params
+	stream, mac := crypto.InitStreamParams(passphrase, s.Header.Salt[:],
+		int(p.LogN), int(p.R), int(p.P))
 
-	return s.Serialize(file, stream, mac)
+	err = s.Encrypt(cipher.StreamWriter{S: stream, W: file}, mac)
+	if err != nil {
+		fatalf("Failed to encrypt store: %s", err)
+	}
+
+	// Try to cache key
+	err = cache.CacheKey(passphrase)
+	if err != nil {
+		// fmt.Println(err)
+	}
 }
 
 // TODO: fix changed behaviour + for functions that don't use this function
 func readPassStore() (s *store.Store, err error) {
+	// Try to get cached key
+	reply, err := cache.GetKey()
+	if err != nil {
+		fmt.Println(err)
+	} else if reply.Available {
+		fmt.Println("cached key:", reply.Key)
+		return decryptStore(reply.Key)
+	} else {
+		fmt.Println("key is not cached")
+	}
+
 	for i := 0; i < 3; i++ {
-		passphrase := readPass("Enter passphrase for %q", storeFile)
-		defer crypto.Clear(passphrase)
-		s, err = readStore(passphrase)
+		passphrase := readPass("Enter passphrase for '%s'", storeFile)
+		s, err = decryptStore(passphrase)
+		crypto.Clear(passphrase)
 		if err == nil || err != store.ErrWrongPass {
 			return
 		}
@@ -136,40 +206,81 @@ func readPassStore() (s *store.Store, err error) {
 	return
 }
 
-func readStore(passphrase []byte) (s *store.Store, err error) {
-	f, err := os.OpenFile(storeFile, os.O_RDONLY, storeFilePerm)
+// Reads both passphrase and store
+func openStore() *store.Store {
+	p := readPassphrase("Enter passphrase for '%s'", storeFile)
+	defer crypto.Clear(p)
+	return readStore(p)
+}
+
+func readStore(passphrase []byte) *store.Store {
+	file, err := os.Open(storeFile)
 	if err != nil {
-		return
+		fatalf("Failed to open store: %s", err)
 	}
-	defer f.Close()
+	defer file.Close()
 
 	// Get file info with stat
-	fi, err := f.Stat()
+	fi, err := file.Stat()
+	if err != nil {
+		panic(err)
+	}
+
+	// We need to unmarshal the header before the rest of the store can be
+	// decrypted
+	s := store.NewStore(&store.Header{})
+	if err = s.Header.Unmarshal(file); err != nil {
+		fatalf("Failed to marshal header: %s", err)
+	}
+
+	// Rewind file offset to origin of file (offset is modified by
+	// marshalling the header)
+	file.Seek(0, os.SEEK_SET)
+
+	// Attempt to decrypt store
+	p := s.Header.Params
+	stream, mac := crypto.InitStreamParams(passphrase, s.Header.Salt[:],
+		int(p.LogN), int(p.R), int(p.P))
+	err = s.Decrypt(cipher.StreamReader{stream, file}, fi.Size(), mac)
+	if err != nil {
+		fatalf("Failed to decrypt store: %s", err)
+	}
+	return s
+}
+
+func decryptStore(passphrase []byte) (s *store.Store, err error) {
+	file, err := os.Open(storeFile)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	// Get file info with stat
+	fi, err := file.Stat()
 	if err != nil {
 		return
 	}
 
-	// We need to serialize the header before the rest of the file can be
-	// serialized
-	var header store.Header
-	if err = header.Deserialize(f); err != nil {
+	// We need to unmarshal the header before the rest of the store can be
+	// decrypted
+	s = store.NewStore(&store.Header{})
+	if err = s.Header.Unmarshal(file); err != nil {
 		return
 	}
 
-	stream, mac := crypto.InitStreamParams(passphrase, header.Salt[:])
-	s = store.NewStore()
-	s.Header = header
-
 	// Rewind file offset to origin of file (offset is modified by
-	// header.Deserialize).
-	f.Seek(0, os.SEEK_SET)
+	// marshalling the header)
+	file.Seek(0, os.SEEK_SET)
 
-	// Attempt to deserialize store
-	err = s.Deserialize(f, int(fi.Size()), stream, mac)
+	p := s.Header.Params
+	stream, mac := crypto.InitStreamParams(passphrase, s.Header.Salt[:],
+		int(p.LogN), int(p.R), int(p.P))
+	err = s.Decrypt(cipher.StreamReader{stream, file}, fi.Size(), mac)
 	return
 }
 
 // Name returns the command's name: the first word in the usage line.
+// TODO: 'go help cmd' should suffix cmd.Short with 'passman' (see go source)
 func (c *Command) Name() string {
 	name := c.UsageLine
 	i := strings.Index(name, " ")
@@ -195,11 +306,19 @@ func fatalf(format string, args ...interface{}) {
 	os.Exit(1)
 }
 
-// Adds global flags for store-specific commands
-// TODO: make store path absolute (filepath.Abs)
+// Adds global flags for store-specific commands.
 func addStoreFlags(cmd *Command) {
 	cmd.Flag.StringVar(&storeFile, "f", storeFile, "")
 	cmd.Flag.StringVar(&storeFile, "file", storeFile, "")
+}
+
+// Makes sure the store file path is absolute
+func fixStoreFile() {
+	var err error
+	storeFile, err = filepath.Abs(storeFile)
+	if err != nil {
+		panic(err)
+	}
 }
 
 func main() {
@@ -219,6 +338,7 @@ func main() {
 			// cmd.Flag.Usage = func() { cmd.Usage() }
 			cmd.Flag.Usage = cmd.Usage
 			cmd.Flag.Parse(args[1:])
+			fixStoreFile()
 			args = cmd.Flag.Args()
 			cmd.Run(cmd, args)
 			os.Exit(0)

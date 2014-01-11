@@ -2,42 +2,44 @@ package crypto
 
 import (
 	"code.google.com/p/go.crypto/scrypt"
+	"crypto"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
+	_ "crypto/sha256"
 	"hash"
 	"io"
 )
 
-const keySize = 32       // 256-bit key for AES-256
-var macHash = sha256.New // Use SHA-256 as HMAC
+const (
+	KeySize = 32            // 256-bit key for AES-256
+	HashFn  = crypto.SHA256 // Use SHA-256 as HMAC hash function
+)
 
-// Generates a cryptographically secure salt with length equal to key size.
-func GenerateRandomSalt() (salt []byte, err error) {
-	salt = make([]byte, keySize)
-	if _, err = io.ReadFull(rand.Reader, salt); err != nil {
-		return
+// Fill b with entropy taken from the CSPRNG in crypto/rand
+func Rand(b []byte) error {
+	if _, err := io.ReadFull(rand.Reader, b[:]); err != nil {
+		return err
 	}
-	return
+	return nil
 }
 
-func deriveKeys(passphrase, salt []byte) (cipherKey, hmacKey []byte) {
-	// Use sensible work factor defaults for now...
-	key, err := scrypt.Key(passphrase, salt, 16384, 8, 1, 64) // keySize*2
+// DeriveKeys returns a set of keys that is derived from the entropy in
+// passphrase and salt. Both resulting key lengths are 32 bytes (AES-256 key
+// length and SHA-256 hash size respectively).
+func DeriveKeys(passphrase, salt []byte, logN, r, p int) (cipherKey, hmacKey []byte) {
+	key, err := scrypt.Key(passphrase, salt, 1<<uint(logN), r, p, KeySize+HashFn.Size())
 	if err != nil {
-		panic(err) // scrypt params should be guarded elsewhere
+		panic(err)
 	}
-	if err == nil {
-		cipherKey, hmacKey = key[:keySize], key[keySize:]
-	}
+	cipherKey, hmacKey = key[:KeySize], key[KeySize:]
 	return
 }
 
 func initCTRStream(key []byte) cipher.Stream {
+	// TODO: internal state of  block remains in memory?
 	block, err := aes.NewCipher(key)
-	// TODO: internal state of block remains in memory?
 	if err != nil {
 		panic(err) // KeySizeError
 	}
@@ -45,11 +47,11 @@ func initCTRStream(key []byte) cipher.Stream {
 	return cipher.NewCTR(block, iv)
 }
 
-func InitStreamParams(passphrase, salt []byte) (stream cipher.Stream, mac hash.Hash) {
-	cipherKey, hmacKey := deriveKeys(passphrase, salt)
+func InitStreamParams(passphrase, salt []byte, logN, r, p int) (stream cipher.Stream, mac hash.Hash) {
+	cipherKey, hmacKey := DeriveKeys(passphrase, salt, logN, r, p)
 	defer Clear(cipherKey, hmacKey)
 	stream = initCTRStream(cipherKey)
-	mac = hmac.New(macHash, hmacKey)
+	mac = hmac.New(HashFn.New, hmacKey)
 	return
 }
 
@@ -60,4 +62,20 @@ func Clear(s ...[]byte) {
 			secret[i] = 0
 		}
 	}
+}
+
+// TODO: move to crypto or cache
+func getChecksum(r io.Reader) (sum []byte, err error) {
+	// file, err := os.Open(storeFile)
+	// if err != nil {
+	// 	return
+	// }
+	// defer file.Close()
+
+	h := HashFn.New()
+	if _, err = io.Copy(h, r); err != nil {
+		return
+	}
+	sum = h.Sum(nil)
+	return
 }

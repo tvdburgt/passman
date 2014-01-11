@@ -101,8 +101,8 @@ func initAtoms() (err error) {
 // function does not block. Requestor names are sent to the string channel and
 // errors are sent to the error channel.
 func Put(data []byte) (<-chan string, <-chan error, error) {
-	creq := make(chan string)
-	cerr := make(chan error)
+	creq := make(chan string, 1)
+	cerr := make(chan error, 1)
 
 	if conn == nil {
 		return nil, nil, errors.New("clipboard: X connection is nil")

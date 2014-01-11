@@ -7,41 +7,41 @@ import (
 )
 
 var cmdExport = &Command{
-	UsageLine: "export [-output file]",
-	Short: "export passman store",
+	UsageLine: "export file",
+	Short:     "export passman store",
 	Long: `
 JSON-formatted, defaults to stdout.
 	`,
 }
 
-var (
-	exportOutput string
-)
-
 func init() {
 	cmdExport.Run = runExport
-	cmdExport.Flag.StringVar(&exportOutput, "o", "", "")
-	cmdExport.Flag.StringVar(&exportOutput, "output", "", "")
+	// cmdExport.Flag.StringVar(&exportOutput, "o", "", "")
+	// cmdExport.Flag.StringVar(&exportOutput, "output", "", "")
 }
-
 
 // Writes a JSON-formatted output of the password store to stdout or file.
 func runExport(cmd *Command, args []string) {
+	var err error
 	var out *os.File = os.Stdout
 
 	store, err := readPassStore()
 	if err != nil {
-		return
+		fatalf("passman import: %s", err)
 	}
 
-	if len(exportOutput) > 0 {
-		out, err = os.Create(exportOutput)
-		// TODO: check if file exists
+	if len(args) > 0 {
+		filename := args[0]
+		if _, err := os.Stat(filename); err == nil {
+			fatalf("passman init: '%s' already exists", filename)
+		}
+		out, err = os.OpenFile(filename, storeFileCreateFlag, storeFilePerm)
 		if err != nil {
 			fatalf("passman export: %s", err)
 		}
 		defer out.Close()
 	}
+
 
 	if err = store.Export(out); err != nil {
 		return
@@ -49,7 +49,7 @@ func runExport(cmd *Command, args []string) {
 
 	if out != os.Stdout {
 		if path, err := filepath.Abs(out.Name()); err != nil {
-			fatalf("passman export: %s", err)
+			panic(err)
 		} else {
 			fmt.Printf("Created export file at '%s'\n", path)
 		}

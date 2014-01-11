@@ -22,9 +22,9 @@ func runGet(cmd *Command, args []string) {
 
 	s, err := readPassStore();
 	if err != nil {
-		return
+		fatalf("passman get: %s", err)
 	}
-	defer s.Close()
+	// defer s.Close()
 
 	e, ok := s.Entries[id]
 	if !ok {

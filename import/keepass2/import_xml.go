@@ -34,7 +34,8 @@ const fileGenerator = "KeePass"
 
 func ImportXml(in io.Reader) (s *store.Store, err error) {
 	var db database
-	s = store.NewStore()
+	s = store.NewStore(store.NewHeader())
+
 	dec := xml.NewDecoder(in)
 
 	if err = dec.Decode(&db); err != nil {

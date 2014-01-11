@@ -49,7 +49,7 @@ const layout = "2006-01-02T15:04:05"
 
 func ImportXml(in io.Reader) (s *store.Store, err error) {
 	var db database
-	s = store.NewStore()
+	s = store.NewStore(store.NewHeader())
 	dec := xml.NewDecoder(in)
 
 	if err = dec.Decode(&db); err != nil {

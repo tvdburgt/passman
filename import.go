@@ -12,7 +12,7 @@ import (
 )
 
 var cmdImport = &Command{
-	UsageLine: "import [-file FILE] [-format FORMAT] file",
+	UsageLine: "import [-f file] [-format format] [-normalize] [-groups] importfile",
 	Short:     "import passwords from an export file",
 	Long: `
 JSON-formatted, defaults to stdout.
@@ -21,57 +21,49 @@ JSON-formatted, defaults to stdout.
 
 var (
 	importFormat    = "passman"
-	importNormalize = imprt.NormalizeEntries
-	importGroups    = imprt.ImportGroups
+	importNormalize = &imprt.NormalizeEntries
+	importGroups    = &imprt.ImportGroups
 )
 
 func init() {
 	cmdImport.Run = runImport
 	cmdImport.Flag.StringVar(&importFormat, "format", importFormat, "")
-	cmdImport.Flag.BoolVar(&importNormalize, "normalize", importNormalize, "")
-	cmdImport.Flag.BoolVar(&importGroups, "groups", importGroups, "")
+	cmdImport.Flag.BoolVar(importNormalize, "normalize", *importNormalize, "")
+	cmdImport.Flag.BoolVar(importGroups, "groups", *importGroups, "")
 	addStoreFlags(cmdImport)
 }
 
 func runImport(cmd *Command, args []string) {
 	if len(args) < 1 {
-		fatalf("passman import: missing file")
+		cmd.Usage()
 	}
-
 	if _, err := os.Stat(storeFile); err == nil {
-		fatalf("passman init: '%s' already exists", storeFile)
+		fatalf("Import target file '%s' already exists", storeFile)
 	}
 
 	filename := args[0]
 	file, err := os.Open(filename)
 	if err != nil {
-		fatalf("passman import: %s", err)
+		fatalf("Failed to open import source file: %s", err)
 	}
 	defer file.Close()
 
 	s, err := importStore(file)
 	if err != nil {
-		fatalf("passman import: %s", err)
+		fatalf("Import failed: %s", err)
 	}
 
-	passphrase := readVerifiedPass()
+	passphrase := verifyPassphrase()
 	defer crypto.Clear(passphrase)
-
-	if err := writeStore(s, passphrase); err != nil {
-		fatalf("passman init: %s", err)
-	}
-
-	fmt.Printf("Imported entries to '%s'.\n", storeFile)
+	writeStore(s, passphrase)
+	fmt.Printf("Imported %d entries to '%s'.\n",
+		len(s.Entries), storeFile)
 }
 
 func importStore(file *os.File) (s *store.Store, err error) {
-	// Apply flags to import package
-	imprt.ImportGroups = importGroups
-	imprt.NormalizeEntries = importNormalize
-
 	switch importFormat {
 	case "passman":
-		s = store.NewStore()
+		s = store.NewStore(store.NewHeader())
 		err = s.Import(file)
 	case "keepass":
 		s, err = keepass.ImportXml(file)

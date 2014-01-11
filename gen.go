@@ -45,11 +45,11 @@ func runGen(cmd *Command, args []string) {
 }
 
 
-// Helper method for reading numbers from stdin; uses default value (def) if
+// Helper method for reading numbers from stdin; uses default value if
 // input is empty. An error is returned if Atoi can't parse input.
-func scanNumber(def int) (n int, err error) {
+func scanNumber(value int) (n int, err error) {
 	var s string
-	n = def
+	n = value
 	if _, err = fmt.Scanln(&s); err == nil {
 		n, err = strconv.Atoi(s)
 	} else if len(s) == 0 {

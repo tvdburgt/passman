@@ -7,21 +7,22 @@ import (
 	"time"
 )
 
-const monthDuration = 2.63e+6
+const secondsPerMonth = 2.63e+6
+
+type Metadata map[string]string
 
 type Entry struct {
-	Name     string            `json:"name,omitempty"`
-	Password []byte            `json:"password,omitempty"` // TODO: make private?
-	Time     time.Time         `json:"time,omitempty"`
-	Metadata map[string]string `json:"metadata,omitempty"`
+	Name     string    `json:"name"`
+	Password []byte    `json:"password"`
+	Time     time.Time `json:"time"`
+	Metadata `json:"metadata"`
 }
 
 func NewEntry() *Entry {
-	return &Entry{Metadata: make(map[string]string)}
+	return &Entry{Metadata: make(Metadata)}
 }
 
 func (e *Entry) Age() time.Duration {
-	// t := time.Unix(e.Time, 0)
 	return time.Since(e.Time)
 }
 
@@ -42,12 +43,11 @@ func (e *Entry) String() string {
 	b := new(bytes.Buffer)
 	w := tabwriter.NewWriter(b, 0, 8, 0, '\t', 0)
 
-	months := e.Age().Seconds() / monthDuration
-	// TODO: use time.Round to round or floor to nearest month?
+	age := e.Age().Seconds() / secondsPerMonth
 
 	fmt.Fprintf(w, "name:\t%s\n", e.Name)
 	fmt.Fprintf(w, "pass:\t%q\n", e.Password)
-	fmt.Fprintf(w, "age:\t%.1f months\n", months)
+	fmt.Fprintf(w, "age:\t%.1f months\n", age)
 
 	for key, val := range e.Metadata {
 		fmt.Fprintf(w, "%s:\t%s\n", key, val)
