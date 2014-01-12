@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"github.com/tvdburgt/passman/clipboard"
 	"github.com/tvdburgt/passman/store"
@@ -11,27 +12,68 @@ import (
 )
 
 var cmdClip = &Command{
-	UsageLine: "clip [-value value] [-timeout timeout] [-persist] id",
-	Short:     "display an individual entry",
+	UsageLine: "clip [flags] entry_id",
+	Short:     "make entry data available for clipboard requests",
 	Long: `
-get displays the content of a single passman entry. The identifier must be an
-exact match. To search or display multiple entries, see passman list.
+The clip command makes information associated with an entry, available for
+clipboard request from other applications. Both CLIPBOARD and PRIMARY X11
+selection types are used to convey data.
+
+Available flags:
+
+    -fields field_list
+        Specifies which entry values should be copied to the clipboard.
+        If multiple fields are supplied, the associated values are
+        copied consecutively after each selection request (in the same
+        order as they are provided). Possible fields are "password",
+        "name" and any of the metadata keys that are set for that
+        particular entry. The default value is "password". Multiple
+        values are separated with a comma (without spaces).
+
+    -timeout duration
+        Sets timeout (delay before passman will exit and clear clipboard
+        selection). Duration must be a valid duration string that ends
+        with a valid time unit ("s" for seconds, "m" for minutes, etc.).
+        To disable the timeout, use a nonpositive duration. See 'godoc
+        time ParseDuration' for more info about the duration string
+        format.
+
+    -persist
+        By default, passman will automatically exit after each value in
+        -fields has been delivered through the clipboard. By using this
+        flag, entry data will remain in the clipboard upon successive
+        selection requests (as long as passman remains running). Keep in
+        mind that for a multivalued -fields flag, only the first field
+        is made available for selection requests.
 	`,
 }
 
-const closeMsg = "Closing in %s..."
+type fieldSlice []string
+
+func (fs *fieldSlice) String() string {
+	return strings.Join(*fs, ",")
+}
+
+func (fs *fieldSlice) Set(value string) error {
+	if len(value) == 0 {
+		return errors.New("value is empty")
+	}
+	*fs = strings.Split(value, ",")
+	return nil
+}
 
 var (
 	clipTimeout = 20 * time.Second
 	clipPersist = false
-	clipField   = "password"
+	clipFields   = fieldSlice{"password"}
 )
 
 func init() {
 	cmdClip.Run = runClip
 	cmdClip.Flag.DurationVar(&clipTimeout, "timeout", clipTimeout, "")
 	cmdClip.Flag.BoolVar(&clipPersist, "persist", clipPersist, "")
-	cmdClip.Flag.StringVar(&clipField, "field", clipField, "")
+	cmdClip.Flag.Var(&clipFields, "fields", "")
+	addFileFlag(cmdInit)
 }
 
 func runClip(cmd *Command, args []string) {
@@ -40,89 +82,102 @@ func runClip(cmd *Command, args []string) {
 	}
 	id := args[0]
 
-	if clipTimeout <= 0 {
-		fatalf("Invalid timeout. Timeout must be a positive duration.")
-	}
-
 	s := openStore()
 	e, ok := s.Entries[id]
 	if !ok {
-		fatalf("Entry '%s' does not exist", id)
+		fatalf("Entry %q does not exist.", id)
 	}
 
-	value := getValue(e)
 	if err := clipboard.Setup(); err != nil {
 		fatalf("Clipboard error: %s", err)
 	}
-	creq, cerr, err := clipboard.Put(value)
-	if err != nil {
-		fatalf("Clipboard error: %s", err)
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt)
+
+	// Call getValue for each field to trigger possible fatal errors for
+	// invalid fields.
+	for _, f := range clipFields {
+		getValue(e, f)
 	}
 
-	fmt.Println("Listening for clipboard requests...")
-
-	sigch := make(chan os.Signal, 1)
-	signal.Notify(sigch, os.Interrupt)
-
-	ticker := time.Tick(time.Second)
-
+	// Helper function for printing status messages
 	var msg string
-	write := func(s string, args... interface{}) {
+	printStatus := func(s string, args ...interface{}) {
 		fmt.Print("\r", strings.Repeat(" ", len(msg)+1), "\r")
 		fmt.Printf(s, args...)
 		msg = s
 	}
 
-	write("Closing in %s...", clipTimeout)
+	// Disallow -persist flag if more than one field is provided
+	// TODO: change this msg
+	// if len(clipFields) > 1 && clipPersist {
+	// 	clipPersist = false
+	// 	fmt.Println("Ignoring -persist flag (disallowed in combination with multivalued -field flag)")
+	// }
 
-	for {
-		select {
-		case req := <-creq:
-			write("Password requested by '%s'\n", req)
-			if !clipPersist {
-				fmt.Println("Exiting. Add '-persist' flag to allow additional requests.")
-				return
+	fmt.Println("Listening for clipboard requests...")
+
+	// Only set timeout/ticker if timeout duration is positive
+	var timeout, tick <-chan time.Time
+	if clipTimeout > 0 {
+		timeout = time.After(clipTimeout)
+		tick = time.Tick(time.Second)
+		printStatus("Closing in %s...", clipTimeout)
+	}
+
+	for _, field := range clipFields {
+		value := getValue(e, field)
+		request, err := clipboard.Put(value)
+
+	listener:
+		for {
+			select {
+			case name := <-request:
+				printStatus("Field %q requested by %q\n", field, name)
+				if !clipPersist {
+					clipboard.Clear()
+					break listener
+				}
+			case e := <-err:
+				printStatus("Clipboard error: %s\n", e)
+				os.Exit(1)
+			case s := <-sig:
+				printStatus("Received %s signal. Exiting.\n", s)
+				os.Exit(1)
+			case <-tick:
+				clipTimeout -= time.Second
+				printStatus("Closing in %s...", clipTimeout)
+			case <-timeout:
+				printStatus("Reached timeout. Exiting.\n")
+				os.Exit(0)
 			}
-
-		case err := <-cerr:
-			write("")
-			fatalf("Clipboard error: %s", err)
-
-		case <-ticker:
-			clipTimeout -= time.Second
-			write("Closing in %s...", clipTimeout)
-
-		case <-time.After(clipTimeout):
-			write("Reached timeout. Exiting.\n")
-			return
-
-		case <-sigch:
-			write("Received interrupt. Exiting.\n")
-			os.Exit(1)
 		}
 	}
+
+	fmt.Println("All field values are copied. Exiting.")
 }
 
 func validFields(e *store.Entry) []string {
-	fields := []string{"'password'", "'name'"}
+	fields := []string{`"password"`, `"name"`}
 	for key, _ := range e.Metadata {
-		fields = append(fields, fmt.Sprintf("'%s'", key))
+		fields = append(fields, fmt.Sprintf("%q", key))
 	}
 	return fields
 }
 
-func getValue(e *store.Entry) []byte {
-	switch clipField {
+func getValue(e *store.Entry, field string) []byte {
+	switch field {
 	case "password":
 		return e.Password
 	case "name":
 		return []byte(e.Name)
 	default:
-		if value, ok := e.Metadata[clipField]; ok {
+		if value, ok := e.Metadata[field]; ok {
 			return []byte(value)
 		}
-		fatalf("Invalid field '%s' (possible fields: %s)",
-			clipField, strings.Join(validFields(e), ", "))
+		fatalf("Invalid field %q (possible fields: %s)",
+			field, strings.Join(validFields(e), ", "))
 	}
 	return nil
 }

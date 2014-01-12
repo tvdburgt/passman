@@ -17,8 +17,18 @@ import (
 	"github.com/BurntSushi/xgb/xproto"
 	"github.com/BurntSushi/xgbutil"
 	"github.com/BurntSushi/xgbutil/icccm"
-	// "log"
+	"log"
 )
+
+const debug debugging = false
+
+type debugging bool
+
+func (d debugging) Printf(format string, args ...interface{}) {
+	if d {
+		log.Printf(format, args...)
+	}
+}
 
 var (
 	conn     *xgb.Conn
@@ -40,18 +50,9 @@ var (
 		"TIMESTAMP":   &atomTimestamp,
 	}
 
+	// Time when selection is acquired
 	selectionTime xproto.Timestamp
 )
-
-// var Debug debug
-
-// type debug bool
-
-// func (d debug) Printf(format string, args ...interface{}) {
-// 	if d {
-// 		log.Printf(format, args...)
-// 	}
-// }
 
 // Performs initialization for clipboard to work. Not using init() to prevent
 // unnecessary invocations.
@@ -100,25 +101,32 @@ func initAtoms() (err error) {
 // Makes data available for PRIMARY and CLIPBOARD selection requests. This
 // function does not block. Requestor names are sent to the string channel and
 // errors are sent to the error channel.
-func Put(data []byte) (<-chan string, <-chan error, error) {
+func Put(data []byte) (<-chan string, <-chan error) {
 	creq := make(chan string, 1)
 	cerr := make(chan error, 1)
 
 	if conn == nil {
-		return nil, nil, errors.New("clipboard: X connection is nil")
+		cerr <- errors.New("clipboard: X connection is nil")
+		return creq, cerr
 	}
 
 	var err error
 	selectionTime, err = getCurrentTime()
 	if err != nil {
-		return nil, nil, err
+		cerr <- err
+		return creq, cerr
 	}
 
-	// TODO: close chan on error?
 	go put(data, xproto.AtomPrimary, creq, cerr)
 	go put(data, atomClipboard, creq, cerr)
 
-	return creq, cerr, nil
+	return creq, cerr
+}
+
+// Clear clears clipboard data by giving up selection ownership.
+func Clear() {
+	xproto.SetSelectionOwner(conn, xproto.AtomNone, xproto.AtomPrimary, selectionTime)
+	xproto.SetSelectionOwner(conn, xproto.AtomNone, atomClipboard, selectionTime)
 }
 
 func put(data []byte, selection xproto.Atom,
@@ -167,17 +175,17 @@ func put(data []byte, selection xproto.Atom,
 			handleRequest(e, data, creq)
 
 		case xproto.SelectionClearEvent:
-			fmt.Println("lost selection", e)
+			// log.Printf("lost selection: %s\n", e)
 			return
 
 		default:
-			fmt.Println("unknown event:", e)
+			log.Printf("unknown event: %s\n", e)
 		}
 	}
 }
 
-func handleRequest(req xproto.SelectionRequestEvent, data []byte,
-	creq chan<- string) {
+func handleRequest(req xproto.SelectionRequestEvent,
+	data []byte, creq chan<- string) {
 
 	// Build response
 	res := xproto.SelectionNotifyEvent{
@@ -190,7 +198,7 @@ func handleRequest(req xproto.SelectionRequestEvent, data []byte,
 
 	// If requestor is obsolete, set target as property atom
 	if res.Property == xproto.AtomNone {
-		fmt.Println("obsolete requestor")
+		log.Printf("requestor is obsolete\n")
 		res.Property = res.Target
 	}
 
@@ -199,7 +207,7 @@ func handleRequest(req xproto.SelectionRequestEvent, data []byte,
 	var converted bool
 	if req.Time != xproto.TimeCurrentTime && req.Time < selectionTime {
 		req.Property = xproto.AtomNone
-		fmt.Println("wrong timestamp")
+		log.Printf("incorrect timestamp; ignoring request\n")
 	} else {
 		converted = handleResponse(res, data)
 	}
@@ -211,7 +219,7 @@ func handleRequest(req xproto.SelectionRequestEvent, data []byte,
 
 	if converted {
 		name, _ := icccm.WmNameGet(connUtil, req.Requestor)
-		// Run in goroutine so it doesn't block if creq is full
+		// Run in separate goroutine so it doesn't block if chan is full
 		go func() { creq <- name }()
 	}
 }
@@ -225,7 +233,6 @@ func handleResponse(res xproto.SelectionNotifyEvent, data []byte) bool {
 	// Some apps send multiple identical TARGETS requests and then revert
 	// to UTF8_STRING/STRING, so this might not be functioning correctly
 	case atomTargets:
-		// fmt.Println("TARGETS:", res)
 		buf := new(bytes.Buffer)
 		// Supported target atoms
 		targets := []xproto.Atom{
@@ -245,7 +252,6 @@ func handleResponse(res xproto.SelectionNotifyEvent, data []byte) bool {
 
 	// TIMESTAMP: return timestamp used to acquire selection ownership
 	case atomTimestamp:
-		// fmt.Println("TIMESTAMP:", res)
 		timestamp := make([]byte, 4)
 		xgb.Put32(timestamp, uint32(selectionTime))
 		xproto.ChangeProperty(conn, xproto.PropModeReplace,
@@ -254,7 +260,6 @@ func handleResponse(res xproto.SelectionNotifyEvent, data []byte) bool {
 
 	// STRING, UTF8_STRING: send selection data
 	case xproto.AtomString, atomUtf8:
-		// fmt.Println("STRING:", res)
 		xproto.ChangeProperty(conn, xproto.PropModeReplace,
 			res.Requestor, res.Property, res.Target,
 			8, uint32(len(data)), data)
@@ -266,7 +271,7 @@ func handleResponse(res xproto.SelectionNotifyEvent, data []byte) bool {
 
 	// Unknown atom target: refuse request by setting Property to None
 	default:
-		// fmt.Println("unknown target:", res)
+		log.Printf("request with unknown target: %s\n", res)
 		res.Property = xproto.AtomNone
 	}
 
