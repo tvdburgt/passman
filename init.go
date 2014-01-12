@@ -14,14 +14,14 @@ var cmdInit = &Command{
 	Long: `
 JSON-formatted, defaults to stdout.
 
-  -f -file <file>
+  -f, -file <store-file>
 	override default store file (default file location is $HOME/.pass_store
 	or $PASS_STORE, if set)
 	`,
 }
 
 func init() {
-	addStoreFlags(cmdInit)
+	addFileFlag(cmdInit)
 }
 
 func runInit(cmd *Command, args []string) {

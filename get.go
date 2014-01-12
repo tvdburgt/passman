@@ -16,21 +16,14 @@ exact match. To search or display multiple entries, see passman list.
 
 func runGet(cmd *Command, args []string) {
 	if len(args) < 1 {
-		fatalf("passman get: missing identifier")
+		cmd.Usage()
 	}
 	id := args[0]
-
-	s, err := readPassStore();
-	if err != nil {
-		fatalf("passman get: %s", err)
-	}
-	// defer s.Close()
-
+	s := openStore()
 	e, ok := s.Entries[id]
 	if !ok {
-		fatalf("passman get: no such entry %q", id)
+		fatalf("Entry '%s' does not exist", id)
 	}
-
 	fmt.Print(e)
 }
 

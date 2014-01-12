@@ -12,7 +12,7 @@ import (
 )
 
 var cmdImport = &Command{
-	UsageLine: "import [-f file] [-format format] [-normalize] [-groups] importfile",
+	UsageLine: "import [-f file] [-format format] [-normalize] [-groups] import-file",
 	Short:     "import passwords from an export file",
 	Long: `
 JSON-formatted, defaults to stdout.
@@ -30,7 +30,7 @@ func init() {
 	cmdImport.Flag.StringVar(&importFormat, "format", importFormat, "")
 	cmdImport.Flag.BoolVar(importNormalize, "normalize", *importNormalize, "")
 	cmdImport.Flag.BoolVar(importGroups, "groups", *importGroups, "")
-	addStoreFlags(cmdImport)
+	addFileFlag(cmdImport)
 }
 
 func runImport(cmd *Command, args []string) {

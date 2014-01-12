@@ -91,7 +91,7 @@ func readPassphrase(prompt string, args ...interface{}) []byte {
 	fd := int(os.Stdin.Fd())
 	oldState, err := terminal.GetState(fd)
 	if err != nil {
-		panic("could not get state of terminal: " + err.Error())
+		panic("Could not get state of terminal: " + err.Error())
 	}
 	defer terminal.Restore(fd, oldState)
 
@@ -103,7 +103,7 @@ func readPassphrase(prompt string, args ...interface{}) []byte {
 	go func() {
 		for _ = range sigch {
 			terminal.Restore(fd, oldState)
-			fmt.Println("\npassman: Received interrupt... exiting.")
+			fmt.Println("\nReceived interrupt. Exiting.")
 			os.Exit(1)
 		}
 	}()
@@ -112,7 +112,7 @@ func readPassphrase(prompt string, args ...interface{}) []byte {
 	fmt.Print(prompt)
 	p, err := terminal.ReadPassword(fd)
 	if err != nil {
-		panic("failed to read passphrase: " + err.Error())
+		panic("Failed to read passphrase: " + err.Error())
 	}
 	fmt.Print("\r", strings.Repeat(" ", len(prompt)), "\r")
 	return p
@@ -307,7 +307,7 @@ func fatalf(format string, args ...interface{}) {
 }
 
 // Adds global flags for store-specific commands.
-func addStoreFlags(cmd *Command) {
+func addFileFlag(cmd *Command) {
 	cmd.Flag.StringVar(&storeFile, "f", storeFile, "")
 	cmd.Flag.StringVar(&storeFile, "file", storeFile, "")
 }

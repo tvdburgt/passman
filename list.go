@@ -16,17 +16,15 @@ displays all entries in store, optionally filtered by a regex pattern
 }
 
 func init() {
-	addStoreFlags(cmdList)
+	addFileFlag(cmdList)
 }
 
 func runList(cmd *Command, args []string) {
-	s, err := readPassStore()
-	if err != nil {
-		fatalf("passman list: %s", err)
-	}
+	s := openStore()
 
 	// TODO: posix or not?
 	var pattern *regexp.Regexp
+	var err error
 	if len(args) > 0 {
 		pattern, err = regexp.Compile(args[0])
 		if err != nil {
