@@ -111,22 +111,47 @@ func (s *Store) ids(pattern *regexp.Regexp) []string {
 }
 
 func (s *Store) List(out io.Writer, pattern *regexp.Regexp) {
+	ids := s.ids(pattern)
+	if len(ids) == 0 {
+		fmt.Fprintln(out, "No entries found.")
+		return
+	}
+
 	// check $COLUMNS and $LINES
-	w := tabwriter.NewWriter(out, 0, 8, 2, '\t', 0)
-	n, _ := fmt.Fprintln(w, "id\tname\tage")
-	fmt.Fprintln(w, strings.Repeat("-", 80))
-	_ = strings.Repeat("-", n)
-	for _, id := range s.ids(pattern) {
+	b := new(bytes.Buffer)
+	w := tabwriter.NewWriter(b, 0, 0, 4, ' ', 0)
+	fmt.Fprintln(w, "Id\tName\tAge (months)")
+	for _, id := range ids {
 		e := s.Entries[id]
 		months := e.Age().Seconds() / secondsPerMonth
-		fmt.Fprintf(w, "%s\t%s\t%.1f months\n",
+		fmt.Fprintf(w, "%s\t%s\t%.1f\n",
 			id,
 			e.Name,
 			months)
 	}
-	fmt.Fprintln(w, strings.Repeat("-", 80))
+
 	w.Flush()
+	header, _ := b.ReadString('\n')
+	hr := strings.Repeat("-", len(header)-1)
+
+	fmt.Fprint(out, header)
+	fmt.Println(hr)
+	b.WriteTo(out)
+	fmt.Println(hr)
 }
+
+// func maxWidth(b bytes.Buffer) int {
+// 	var n int
+// 	for {
+// 		s, err := b.ReadString('\n')
+// 		if err != nil {
+// 			return n
+// 		}
+// 		if len(s) > n {
+// 			n = len(s)
+// 		}
+// 	}
+// }
 
 func (s *Store) String() string {
 	b := new(bytes.Buffer)

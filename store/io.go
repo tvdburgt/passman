@@ -11,9 +11,10 @@ import (
 	"io"
 )
 
-var ErrWrongPass = errors.New("incorrect passphrase")
-
-var byteOrder = binary.LittleEndian
+var (
+	ErrWrongPass = errors.New("incorrect passphrase")
+	byteOrder    = binary.LittleEndian
+)
 
 func (h *Header) Marshal(w io.Writer) error {
 	return binary.Write(w, byteOrder, h)

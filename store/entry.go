@@ -41,13 +41,13 @@ func (e *Entry) Touch() {
 
 func (e *Entry) String() string {
 	b := new(bytes.Buffer)
-	w := tabwriter.NewWriter(b, 0, 8, 0, '\t', 0)
+	w := tabwriter.NewWriter(b, 0, 0, 1, ' ', 0)
 
 	age := e.Age().Seconds() / secondsPerMonth
 
-	fmt.Fprintf(w, "name:\t%s\n", e.Name)
-	fmt.Fprintf(w, "pass:\t%q\n", e.Password)
-	fmt.Fprintf(w, "age:\t%.1f months\n", age)
+	fmt.Fprintf(w, "Name:\t%s\n", e.Name)
+	fmt.Fprintf(w, "Password:\t%s\n", e.Password)
+	fmt.Fprintf(w, "Age:\t%.1f months\n", age)
 
 	for key, val := range e.Metadata {
 		fmt.Fprintf(w, "%s:\t%s\n", key, val)
