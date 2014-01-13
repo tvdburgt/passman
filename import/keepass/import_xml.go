@@ -86,7 +86,7 @@ func addEntry(s *store.Store, e *entry) {
 	ee := store.NewEntry()
 	ee.Name = e.Username
 	ee.Password = e.Password
-	ee.Time = t
+	ee.Mtime = t
 	if len(e.Url) > 0 {
 		ee.Metadata["url"] = e.Url
 	}

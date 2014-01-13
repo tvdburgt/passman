@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"fmt"
+	"reflect"
 	"text/tabwriter"
 	"time"
 )
@@ -12,9 +13,13 @@ const secondsPerMonth = 2.63e+6
 type Metadata map[string]string
 
 type Entry struct {
-	Name     string    `json:"name"`
-	Password []byte    `json:"password"`
-	Time     time.Time `json:"time"`
+	Name     string `json:"name"`
+	Password []byte `json:"password"`
+
+	// Time of previous password modification
+	Mtime time.Time `json:"mtime"`
+
+	// Map that holds user-defined fields and values
 	Metadata `json:"metadata"`
 }
 
@@ -23,34 +28,38 @@ func NewEntry() *Entry {
 }
 
 func (e *Entry) Age() time.Duration {
-	return time.Since(e.Time)
+	return time.Since(e.Mtime)
 }
 
-// TODO: investigate custom function scoping
-func (e *Entry) ProcessPassword(fn func([]byte)) {
+// TODO: Create scope for plaintext password
+func (e *Entry) PlainPassword(fn func([]byte)) {
 	// Decrypt password
 	password := e.Password
 	fn(password)
-	// clear password
+	// Clear password
 	// Encrypt password
 }
 
 func (e *Entry) Touch() {
-	e.Time = time.Now()
+	e.Mtime = time.Now()
 }
 
 func (e *Entry) String() string {
 	b := new(bytes.Buffer)
-	w := tabwriter.NewWriter(b, 0, 0, 1, ' ', 0)
+	w := tabwriter.NewWriter(b, 0, 0, 0, ' ', 0)
 
-	age := e.Age().Seconds() / secondsPerMonth
-
-	fmt.Fprintf(w, "Name:\t%s\n", e.Name)
-	fmt.Fprintf(w, "Password:\t%s\n", e.Password)
-	fmt.Fprintf(w, "Age:\t%.1f months\n", age)
-
-	for key, val := range e.Metadata {
-		fmt.Fprintf(w, "%s:\t%s\n", key, val)
+	// Use reflect to print entry with json tags
+	valof := reflect.ValueOf(*e)
+	for i := 0; i < valof.NumField(); i++ {
+		switch val := valof.Field(i).Interface().(type) {
+		default:
+			tag := valof.Type().Field(i).Tag.Get("json")
+			fmt.Fprintf(w, "%s\t : %s\n", tag, val)
+		case Metadata:
+			for k, v := range val {
+				fmt.Fprintf(w, "%s\t : %s\n", k, v)
+			}
+		}
 	}
 
 	w.Flush()

@@ -42,10 +42,10 @@ func ImportXml(in io.Reader) (s *store.Store, err error) {
 		return
 	}
 	if db.Generator == nil {
-		return nil, errors.New("invalid format: missing 'Generator' tag")
+		return nil, errors.New(`invalid format: missing "Generator" tag`)
 	}
 	if *db.Generator != fileGenerator {
-		return nil, fmt.Errorf("invalid format: 'Generator' value is '%s' (expected '%s')",
+		return nil, fmt.Errorf(`invalid format: "Generator" value is %q (expected %q)`,
 			db.Generator, fileGenerator)
 	}
 	for _, g := range db.Groups {
@@ -105,6 +105,6 @@ func addEntry(s *store.Store, e *entry, tree []string) {
 	}
 
 	id = imprt.ResolveIdCollisions(s, id)
-	ee.Time = e.Time
+	ee.Mtime = e.Time
 	s.Entries[id] = ee
 }
