@@ -61,10 +61,17 @@ func (fs *fieldSlice) Set(value string) error {
 	return nil
 }
 
+var currentMessage string
+func printMessage(s string, args ...interface{}) {
+	fmt.Print("\r", strings.Repeat(" ", len(currentMessage)+1), "\r")
+	fmt.Printf(s, args...)
+	currentMessage = s
+}
+
 var (
 	clipTimeout = 20 * time.Second
 	clipPersist = false
-	clipFields   = fieldSlice{"password"}
+	clipFields  = fieldSlice{"password"}
 )
 
 func init() {
@@ -91,25 +98,13 @@ func runClip(cmd *Command, args []string) {
 		fatalf("Clipboard error: %s", err)
 	}
 
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt)
-
 	// Call getValue for each field to trigger possible fatal errors for
 	// invalid fields.
 	for _, f := range clipFields {
 		getValue(e, f)
 	}
 
-	// Helper function for printing status messages
-	var msg string
-	printStatus := func(s string, args ...interface{}) {
-		fmt.Print("\r", strings.Repeat(" ", len(msg)+1), "\r")
-		fmt.Printf(s, args...)
-		msg = s
-	}
-
 	// Disallow -persist flag if more than one field is provided
-	// TODO: change this msg
 	// if len(clipFields) > 1 && clipPersist {
 	// 	clipPersist = false
 	// 	fmt.Println("Ignoring -persist flag (disallowed in combination with multivalued -field flag)")
@@ -122,39 +117,46 @@ func runClip(cmd *Command, args []string) {
 	if clipTimeout > 0 {
 		timeout = time.After(clipTimeout)
 		tick = time.Tick(time.Second)
-		printStatus("Closing in %s...", clipTimeout)
+		printMessage("Closing in %s...", clipTimeout)
 	}
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt)
 
 	for _, field := range clipFields {
 		value := getValue(e, field)
-		request, err := clipboard.Put(value)
-
-	listener:
-		for {
-			select {
-			case name := <-request:
-				printStatus("Field %q requested by %q\n", field, name)
-				if !clipPersist {
-					clipboard.Clear()
-					break listener
-				}
-			case e := <-err:
-				printStatus("Clipboard error: %s\n", e)
-				os.Exit(1)
-			case s := <-sig:
-				printStatus("Received %s signal. Exiting.\n", s)
-				os.Exit(1)
-			case <-tick:
-				clipTimeout -= time.Second
-				printStatus("Closing in %s...", clipTimeout)
-			case <-timeout:
-				printStatus("Reached timeout. Exiting.\n")
-				os.Exit(0)
-			}
-		}
+		clipValue(field, value, timeout, tick, sig)
 	}
 
 	fmt.Println("All field values are copied. Exiting.")
+}
+
+func clipValue(field string, value []byte, timeout, tick <-chan time.Time,
+	sig <-chan os.Signal) {
+
+	request, err := clipboard.Put(value)
+	for {
+		select {
+		case name := <-request:
+			printMessage("Field %q requested by %q\n", field, name)
+			if !clipPersist {
+				clipboard.Clear()
+				return
+			}
+		case e := <-err:
+			printMessage("Clipboard error: %s\n", e)
+			os.Exit(1)
+		case s := <-sig:
+			printMessage("Received %s signal. Exiting.\n", s)
+			os.Exit(1)
+		case <-tick:
+			clipTimeout -= time.Second
+			printMessage("Closing in %s...", clipTimeout)
+		case <-timeout:
+			printMessage("Reached timeout. Exiting.\n")
+			os.Exit(0)
+		}
+	}
 }
 
 func validFields(e *store.Entry) []string {
