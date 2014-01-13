@@ -23,12 +23,8 @@ func runSetParam(cmd *Command, args []string) {
 	}
 	name, value := args[0], args[1]
 
-	passphrase := readPass("Enter passphrase for '%s'", storeFile)
+	s, passphrase := openStore(true)
 	defer crypto.Clear(passphrase)
-	s, err := decryptStore(passphrase)
-	if err != nil {
-		fatalf("passman set-param: %s", err)
-	}
 
 	p := &s.Header.Params
 	params := map[string]interface{}{

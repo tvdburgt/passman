@@ -13,14 +13,10 @@ const secondsPerMonth = 2.63e+6
 type Metadata map[string]string
 
 type Entry struct {
-	Name     string `json:"name"`
-	Password []byte `json:"password"`
-
-	// Time of previous password modification
-	Mtime time.Time `json:"mtime"`
-
-	// Map that holds user-defined fields and values
-	Metadata `json:"metadata"`
+	Name     string    `json:"name"`
+	Password []byte    `json:"password"`
+	Mtime    time.Time `json:"mtime"`    // Time of last password modification
+	Metadata Metadata  `json:"metadata"` // Map for custom fields
 }
 
 func NewEntry() *Entry {
@@ -48,7 +44,7 @@ func (e *Entry) String() string {
 	b := new(bytes.Buffer)
 	w := tabwriter.NewWriter(b, 0, 0, 0, ' ', 0)
 
-	// Use reflect to print entry with json tags
+	// Use reflect to print each entry with json tags
 	valof := reflect.ValueOf(*e)
 	for i := 0; i < valof.NumField(); i++ {
 		switch val := valof.Field(i).Interface().(type) {

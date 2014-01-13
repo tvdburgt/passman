@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/tvdburgt/passman/crypto"
+	// TODO: merge import pkgs to single pkg
 	"github.com/tvdburgt/passman/import"
 	"github.com/tvdburgt/passman/import/keepass"
 	"github.com/tvdburgt/passman/import/keepass2"

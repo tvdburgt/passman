@@ -25,10 +25,7 @@ func runExport(cmd *Command, args []string) {
 	var err error
 	var out *os.File = os.Stdout
 
-	store, err := readPassStore()
-	if err != nil {
-		fatalf("passman import: %s", err)
-	}
+	s, _ := openStore(false)
 
 	if len(args) > 0 {
 		filename := args[0]
@@ -43,7 +40,7 @@ func runExport(cmd *Command, args []string) {
 	}
 
 
-	if err = store.Export(out); err != nil {
+	if err = s.Export(out); err != nil {
 		return
 	}
 

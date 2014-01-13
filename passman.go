@@ -10,10 +10,8 @@ import (
 	"crypto/cipher"
 	"flag"
 	"fmt"
-	"github.com/howeyc/gopass"
 	"log"
 	"strings"
-	// TODO: github.com/seehuhn/password
 	"github.com/tvdburgt/passman/cache"
 	"github.com/tvdburgt/passman/crypto"
 	"github.com/tvdburgt/passman/store"
@@ -118,12 +116,6 @@ func readPassphrase(prompt string, args ...interface{}) []byte {
 	return p
 }
 
-// TODO: check for errors (Ctrl-c)
-func readPass(prompt string, args ...interface{}) []byte {
-	fmt.Printf(prompt+": ", args...)
-	return gopass.GetPasswd()
-}
-
 func verifyPassphrase() []byte {
 	for {
 		p1 := readPassphrase("Enter passphrase")
@@ -137,19 +129,6 @@ func verifyPassphrase() []byte {
 		}
 		crypto.Clear(p1, p2)
 		fmt.Fprintln(os.Stderr, "Passphrases do not match. Try again.")
-	}
-}
-
-func readVerifiedPass() []byte {
-	for {
-		pass1 := readPassphrase("Enter passphrase")
-		pass2 := readPassphrase("Verify passphrase")
-		if bytes.Equal(pass1, pass2) {
-			crypto.Clear(pass2)
-			return pass1
-		}
-		crypto.Clear(pass1, pass2)
-		fmt.Fprintln(os.Stderr, "Passphrases don't match, try again.")
 	}
 }
 
@@ -180,37 +159,6 @@ func writeStore(s *store.Store, passphrase []byte) {
 	if err != nil {
 		// fmt.Println(err)
 	}
-}
-
-// TODO: fix changed behaviour + for functions that don't use this function
-func readPassStore() (s *store.Store, err error) {
-	// Try to get cached key
-	reply, err := cache.GetKey()
-	if err != nil {
-		fmt.Println(err)
-	} else if reply.Available {
-		fmt.Println("cached key:", reply.Key)
-		return decryptStore(reply.Key)
-	} else {
-		fmt.Println("key is not cached")
-	}
-
-	for i := 0; i < 3; i++ {
-		passphrase := readPass("Enter passphrase for '%s'", storeFile)
-		s, err = decryptStore(passphrase)
-		crypto.Clear(passphrase)
-		if err == nil || err != store.ErrWrongPass {
-			return
-		}
-	}
-	return
-}
-
-// Reads both passphrase and store
-func openStore() *store.Store {
-	p := readPassphrase("Enter passphrase for '%s'", storeFile)
-	defer crypto.Clear(p)
-	return readStore(p)
 }
 
 func readStore(passphrase []byte) *store.Store {
@@ -248,34 +196,16 @@ func readStore(passphrase []byte) *store.Store {
 	return s
 }
 
-func decryptStore(passphrase []byte) (s *store.Store, err error) {
-	file, err := os.Open(storeFile)
-	if err != nil {
-		return
+
+// Helper function for reading both passphrase and store.
+// Parameter dictates wheter access is read-only (i.e., passphrase needs to be
+// retained).
+func openStore(ro bool) (s *store.Store, p []byte) {
+	p = readPassphrase("Enter passphrase for '%s'", storeFile)
+	s = readStore(p)
+	if ro {
+		crypto.Clear(p)
 	}
-	defer file.Close()
-
-	// Get file info with stat
-	fi, err := file.Stat()
-	if err != nil {
-		return
-	}
-
-	// We need to unmarshal the header before the rest of the store can be
-	// decrypted
-	s = store.NewStore(&store.Header{})
-	if err = s.Header.Unmarshal(file); err != nil {
-		return
-	}
-
-	// Rewind file offset to origin of file (offset is modified by
-	// marshalling the header)
-	file.Seek(0, os.SEEK_SET)
-
-	p := s.Header.Params
-	stream, mac := crypto.InitStreamParams(passphrase, s.Header.Salt[:],
-		int(p.LogN), int(p.R), int(p.P))
-	err = s.Decrypt(cipher.StreamReader{stream, file}, fi.Size(), mac)
 	return
 }
 

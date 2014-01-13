@@ -19,7 +19,7 @@ const (
 
 // Fill b with entropy taken from the CSPRNG in crypto/rand
 func Rand(b []byte) error {
-	if _, err := io.ReadFull(rand.Reader, b[:]); err != nil {
+	if _, err := io.ReadFull(rand.Reader, b); err != nil {
 		return err
 	}
 	return nil

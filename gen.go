@@ -83,7 +83,7 @@ func readPassword() (password []byte, err error) {
 
 		switch method {
 		case methodManual:
-			return readVerifiedPass(), nil
+			return verifyPassphrase(), nil
 		case methodAscii, methodHex, methodBase32, methodDiceware:
 			password, err := generatePassword(method)
 			switch {

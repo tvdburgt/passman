@@ -20,7 +20,7 @@ func init() {
 }
 
 func runList(cmd *Command, args []string) {
-	s := openStore()
+	s, _ := openStore(false)
 
 	// TODO: posix or not?
 	var pattern *regexp.Regexp

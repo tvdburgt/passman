@@ -60,12 +60,8 @@ func runSet(cmd *Command, args []string) {
 	}
 	id := args[0]
 
-	passphrase := readPass("Enter passphrase for '%s'", storeFile)
+	s, passphrase := openStore(true)
 	defer crypto.Clear(passphrase)
-	s, err := decryptStore(passphrase)
-	if err != nil {
-		fatalf("passman set: %s", err)
-	}
 
 	// Fetch entry
 	e, ok := s.Entries[id]

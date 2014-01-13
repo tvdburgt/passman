@@ -21,12 +21,8 @@ func runDelete(cmd *Command, args []string) {
 	}
 	id := args[0]
 
-	passphrase := readPass("Enter passphrase for '%s'", storeFile)
+	s, passphrase := openStore(true)
 	defer crypto.Clear(passphrase)
-	s, err := decryptStore(passphrase)
-	if err != nil {
-		return
-	}
 
 	// Check existance before deleting
 	if _, ok := s.Entries[id]; !ok {
