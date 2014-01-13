@@ -5,13 +5,18 @@ import (
 )
 
 var cmdGet = &Command{
-	Run: runGet,
-	UsageLine: "get identifier",
-	Short: "display an individual entry",
+	Run:       runGet,
+	UsageLine: "get entry_id",
+	Short:     "show a single entry",
 	Long: `
-get displays the content of a single passman entry. The identifier must be an
-exact match. To search or display multiple entries, see passman list.
+This command shows all fields and corresponding values that belong to an
+individual entry, specified by the entry_id argument. To show multiple entries,
+see 'passman list'.
 	`,
+}
+
+func init() {
+	addFileFlag(cmdGet)
 }
 
 func runGet(cmd *Command, args []string) {
@@ -22,8 +27,7 @@ func runGet(cmd *Command, args []string) {
 	s := openStore()
 	e, ok := s.Entries[id]
 	if !ok {
-		fatalf("Entry '%s' does not exist", id)
+		fatalf("Entry %q does not exist.", id)
 	}
 	fmt.Print(e)
 }
-

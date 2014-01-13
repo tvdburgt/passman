@@ -22,29 +22,28 @@ selection types are used to convey data.
 Available flags:
 
     -fields field_list
-        Specifies which entry values should be copied to the clipboard.
-        If multiple fields are supplied, the associated values are
-        copied consecutively after each selection request (in the same
-        order as they are provided). Possible fields are "password",
-        "name" and any of the metadata keys that are set for that
-        particular entry. The default value is "password". Multiple
-        values are separated with a comma (without spaces).
+	Specifies which entry values should be copied to the clipboard.  If
+	multiple fields are supplied, the associated values are copied
+	consecutively after each selection request (in the same order as they
+	are provided). Possible fields are "password", "name" and any of the
+	metadata keys that are set for that particular entry. The default value
+	is "password". Multiple values are separated with a comma (without
+	spaces). If a metadata field is provided that collides with another
+	field, the non-metadata field will be used.
 
     -timeout duration
-        Sets timeout (delay before passman will exit and clear clipboard
-        selection). Duration must be a valid duration string that ends
-        with a valid time unit ("s" for seconds, "m" for minutes, etc.).
-        To disable the timeout, use a nonpositive duration. See 'godoc
-        time ParseDuration' for more info about the duration string
-        format.
+	Sets timeout (delay before passman will exit and clear clipboard
+	selection). Duration must be a valid duration string that ends with a
+	valid time unit ("s" for seconds, "m" for minutes, etc.).  To disable
+	the timeout, use a nonpositive duration. See 'godoc time ParseDuration'
+	for more info about the duration string format.
 
     -persist
-        By default, passman will automatically exit after each value in
-        -fields has been delivered through the clipboard. By using this
-        flag, entry data will remain in the clipboard upon successive
-        selection requests (as long as passman remains running). Keep in
-        mind that for a multivalued -fields flag, only the first field
-        is made available for selection requests.
+	By default, passman will automatically exit after each value in -fields
+	has been delivered through the clipboard. By using this flag, entry data
+	will remain in the clipboard upon successive selection requests (as long
+	as passman remains running). Keep in mind that for a multivalued -fields
+	flag, only the first field is made available for selection requests.
 	`,
 }
 
@@ -73,7 +72,7 @@ func init() {
 	cmdClip.Flag.DurationVar(&clipTimeout, "timeout", clipTimeout, "")
 	cmdClip.Flag.BoolVar(&clipPersist, "persist", clipPersist, "")
 	cmdClip.Flag.Var(&clipFields, "fields", "")
-	addFileFlag(cmdInit)
+	addFileFlag(cmdClip)
 }
 
 func runClip(cmd *Command, args []string) {

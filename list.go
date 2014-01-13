@@ -6,7 +6,6 @@ import (
 )
 
 var cmdList = &Command{
-	Run: runList,
 	UsageLine: "list [search pattern]",
 	Short: "list store entries",
 	Long: `
@@ -16,6 +15,7 @@ displays all entries in store, optionally filtered by a regex pattern
 }
 
 func init() {
+	cmdList.Run = runList
 	addFileFlag(cmdList)
 }
 
