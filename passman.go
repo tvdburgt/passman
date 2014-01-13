@@ -10,15 +10,15 @@ import (
 	"crypto/cipher"
 	"flag"
 	"fmt"
-	"log"
-	"strings"
 	"github.com/tvdburgt/passman/cache"
 	"github.com/tvdburgt/passman/crypto"
 	"github.com/tvdburgt/passman/store"
+	"log"
 	"os"
 	"os/signal"
 	"os/user"
 	"path/filepath"
+	"strings"
 )
 
 // TODO: clear derived keys etc.
@@ -27,7 +27,7 @@ const (
 	storeFilePerm       os.FileMode = 0600 // Store only requires rw perm for owner
 	storeFileCreateFlag             = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
 	storeFileEnvKey                 = "PASSMAN_STORE"
-	storeFileDefault                = ".pass_store" // Relative to $HOME
+	storeFileDefault                = "$HOME/.pass_store"
 )
 
 // Global variable for filename of the passman store. This value defaults
@@ -51,16 +51,26 @@ var commands = []*Command{
 	cmdDelete,
 }
 
-// Set default for filename
+// Set default store file
 func init() {
-	if val := os.Getenv(storeFileEnvKey); len(val) > 0 {
-		storeFile = val
+	if v := os.Getenv(storeFileEnvKey); v != "" {
+		storeFile = v
 	} else {
 		u, err := user.Current()
 		if err != nil {
-			panic(err)
+			panic("failed to get current user: " + err.Error())
 		}
-		storeFile = filepath.Join(u.HomeDir, storeFileDefault)
+		mapping := func(s string) string {
+			switch s {
+			case "HOME":
+				return u.HomeDir
+			default:
+				return ""
+			}
+		}
+		storeFile = filepath.FromSlash(storeFileDefault)
+		storeFile = os.Expand(storeFile, mapping)
+		fmt.Println(storeFile)
 	}
 }
 
@@ -195,7 +205,6 @@ func readStore(passphrase []byte) *store.Store {
 	}
 	return s
 }
-
 
 // Helper function for reading both passphrase and store.
 // Parameter dictates wheter access is read-only (i.e., passphrase needs to be
