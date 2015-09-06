@@ -27,11 +27,11 @@ func init() {
 func runInit(cmd *Command, args []string) {
 	// Read file and make sure it doesn't exist
 	if _, err := os.Stat(storeFile); err == nil {
-		// fatalf("passman init: '%s' already exists", storeFile)
+		fatalf("passman init: '%s' already exists", storeFile)
 	}
-	passphrase := verifyPassphrase()
+	passphrase := readVerifiedPassphrase()
 	defer crypto.Clear(passphrase)
-	s := store.NewStore(store.NewHeader())
+	s := store.NewStore()
 	writeStore(s, passphrase)
 	fmt.Printf("Initialized empty passman store at '%s'.\n", storeFile)
 }

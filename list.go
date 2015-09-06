@@ -7,7 +7,7 @@ import (
 
 var cmdList = &Command{
 	UsageLine: "list [search pattern]",
-	Short: "list store entries",
+	Short:     "list store entries",
 	Long: `
 regex is posix?
 displays all entries in store, optionally filtered by a regex pattern
@@ -20,7 +20,7 @@ func init() {
 }
 
 func runList(cmd *Command, args []string) {
-	s, _ := openStore(false)
+	s := openStore()
 
 	// TODO: posix or not?
 	var pattern *regexp.Regexp

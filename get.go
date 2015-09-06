@@ -24,7 +24,7 @@ func runGet(cmd *Command, args []string) {
 		cmd.Usage()
 	}
 	id := args[0]
-	s, _ := openStore(false)
+	s := openStore()
 	e, ok := s.Entries[id]
 	if !ok {
 		fatalf("Entry %q does not exist.", id)

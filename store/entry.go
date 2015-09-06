@@ -8,44 +8,38 @@ import (
 	"time"
 )
 
-const secondsPerMonth = 2.63e+6
-
 type Metadata map[string]string
 
 type Entry struct {
 	Name     string    `json:"name"`
 	Password []byte    `json:"password"`
-	Mtime    time.Time `json:"mtime"`    // Time of last password modification
+	Ctime    time.Time `json:"ctime"`    // Creation time
+	Mtime    time.Time `json:"mtime"`    // Modification time
 	Metadata Metadata  `json:"metadata"` // Map for custom fields
 }
 
 func NewEntry() *Entry {
-	return &Entry{Metadata: make(Metadata)}
+	return &Entry{
+		Metadata: make(Metadata),
+		Ctime:    getCurrentTime(),
+		Mtime:    getCurrentTime(),
+	}
 }
 
 func (e *Entry) Age() time.Duration {
 	return time.Since(e.Mtime)
 }
 
-// TODO: Create scope for plaintext password
-func (e *Entry) PlainPassword(fn func([]byte)) {
-	// Decrypt password
-	password := e.Password
-	fn(password)
-	// Clear password
-	// Encrypt password
-}
-
 func (e *Entry) Touch() {
-	e.Mtime = time.Now()
+	e.Mtime = getCurrentTime()
 }
 
-func (e *Entry) String() string {
+func (e Entry) String() string {
 	b := new(bytes.Buffer)
 	w := tabwriter.NewWriter(b, 0, 0, 0, ' ', 0)
 
 	// Use reflect to print each entry with json tags
-	valof := reflect.ValueOf(*e)
+	valof := reflect.ValueOf(e)
 	for i := 0; i < valof.NumField(); i++ {
 		switch val := valof.Field(i).Interface().(type) {
 		default:
@@ -60,4 +54,16 @@ func (e *Entry) String() string {
 
 	w.Flush()
 	return b.String()
+}
+
+func (m Metadata) String() string {
+	var b bytes.Buffer
+	for k, v := range m {
+		fmt.Fprintf(&b, "%s:%s", k, v)
+	}
+	return b.String()
+}
+
+func getCurrentTime() time.Time {
+	return time.Now().Truncate(time.Second)
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,7 +26,7 @@ func runExport(cmd *Command, args []string) {
 	var err error
 	var out *os.File = os.Stdout
 
-	s, _ := openStore(false)
+	s := openStore()
 
 	if len(args) > 0 {
 		filename := args[0]
@@ -39,9 +40,17 @@ func runExport(cmd *Command, args []string) {
 		defer out.Close()
 	}
 
+	// Serialize store and output it
+	content, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		fatalf("%s", err)
+	}
+	if _, err = out.Write(content); err != nil {
+		fatalf("%s", err)
+	}
 
-	if err = s.Export(out); err != nil {
-		return
+	if _, err = fmt.Fprintln(out); err != nil {
+		fatalf("%s", err)
 	}
 
 	if out != os.Stdout {

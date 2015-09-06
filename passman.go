@@ -1,30 +1,21 @@
-// Copright (c) 2013 Tijmen van der Burgt
-// Use of this source code is governed by the MIT license,
-// that can be found in the LICENSE file.
-
 package main
 
 import (
 	"bytes"
-	"code.google.com/p/go.crypto/ssh/terminal"
-	"crypto/cipher"
 	"flag"
 	"fmt"
-	"github.com/tvdburgt/passman/cache"
 	"github.com/tvdburgt/passman/crypto"
 	"github.com/tvdburgt/passman/store"
+	"github.com/tvdburgt/passman/term"
 	"log"
 	"os"
-	"os/signal"
 	"os/user"
 	"path/filepath"
 	"strings"
 )
 
-// TODO: clear derived keys etc.
-
 const (
-	storeFilePerm       os.FileMode = 0600 // Store only requires rw perm for owner
+	storeFilePerm       os.FileMode = 0600 // Store only requires rw perms for owner
 	storeFileCreateFlag             = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
 	storeFileEnvKey                 = "PASSMAN_STORE"
 	storeFileDefault                = "$HOME/.pass_store"
@@ -70,12 +61,12 @@ func init() {
 		}
 		storeFile = filepath.FromSlash(storeFileDefault)
 		storeFile = os.Expand(storeFile, mapping)
-		fmt.Println(storeFile)
+		// fmt.Println(storeFile)
 	}
 }
 
 // A Command is an implementation of a subcommand. The subcommand pattern
-// code is taken from the Go source ($GOROOT/src/cmd).
+// code is taken from the Go source ($GOROOT/src/cmd/go).
 type Command struct {
 	// Run runs the command.
 	// The args are the arguments after the command name.
@@ -95,41 +86,10 @@ type Command struct {
 	Flag flag.FlagSet
 }
 
-func readPassphrase(prompt string, args ...interface{}) []byte {
-	fd := int(os.Stdin.Fd())
-	oldState, err := terminal.GetState(fd)
-	if err != nil {
-		panic("Could not get state of terminal: " + err.Error())
-	}
-	defer terminal.Restore(fd, oldState)
-
-	// Restore terminal when SIGINT is caught
-	sigch := make(chan os.Signal, 1)
-	defer close(sigch)
-	signal.Notify(sigch, os.Interrupt)
-	defer signal.Stop(sigch)
-	go func() {
-		for _ = range sigch {
-			terminal.Restore(fd, oldState)
-			fmt.Println("\nReceived interrupt. Exiting.")
-			os.Exit(1)
-		}
-	}()
-
-	prompt = fmt.Sprintf(prompt+": ", args...)
-	fmt.Print(prompt)
-	p, err := terminal.ReadPassword(fd)
-	if err != nil {
-		panic("Failed to read passphrase: " + err.Error())
-	}
-	fmt.Print("\r", strings.Repeat(" ", len(prompt)), "\r")
-	return p
-}
-
-func verifyPassphrase() []byte {
+func readVerifiedPassphrase() []byte {
 	for {
-		p1 := readPassphrase("Enter passphrase")
-		p2 := readPassphrase("Verify passphrase")
+		p1 := term.ReadPassphrase("Enter passphrase: ")
+		p2 := term.ReadPassphrase("Verify passphrase: ")
 		if bytes.Equal(p1, p2) {
 			if len(p1) == 0 {
 				// fatalf("Invalid passphrase, aborting.")
@@ -137,8 +97,9 @@ func verifyPassphrase() []byte {
 			crypto.Clear(p2)
 			return p1
 		}
-		crypto.Clear(p1, p2)
-		fmt.Fprintln(os.Stderr, "Passphrases do not match. Try again.")
+		crypto.Clear(p1)
+		crypto.Clear(p2)
+		fmt.Fprintln(os.Stderr, "Passphrases do not match, try again.")
 	}
 }
 
@@ -150,72 +111,53 @@ func writeStore(s *store.Store, passphrase []byte) {
 	defer file.Close()
 
 	// Generate a new random salt
-	err = crypto.Rand(s.Header.Salt[:])
+	err = crypto.ReadRand(s.Header.Salt[:])
 	if err != nil {
 		fatalf("Failed to generate salt: %s", err)
 	}
 
-	p := s.Header.Params
-	stream, mac := crypto.InitStreamParams(passphrase, s.Header.Salt[:],
-		int(p.LogN), int(p.R), int(p.P))
-
-	err = s.Encrypt(cipher.StreamWriter{S: stream, W: file}, mac)
+	err = crypto.WriteStore(file, s, passphrase)
 	if err != nil {
-		fatalf("Failed to encrypt store: %s", err)
-	}
-
-	// Try to cache key
-	err = cache.CacheKey(passphrase)
-	if err != nil {
-		// fmt.Println(err)
+		fatalf("Failed to write to store: %s", err)
 	}
 }
 
-func readStore(passphrase []byte) *store.Store {
+func readStore(passphrase []byte) (s *store.Store, err error) {
 	file, err := os.Open(storeFile)
 	if err != nil {
-		fatalf("Failed to open store: %s", err)
+		return
 	}
 	defer file.Close()
 
-	// Get file info with stat
-	fi, err := file.Stat()
+	s, err = crypto.ReadStore(file, passphrase)
 	if err != nil {
-		panic(err)
+		return
 	}
 
-	// We need to unmarshal the header before the rest of the store can be
-	// decrypted
-	s := store.NewStore(&store.Header{})
-	if err = s.Header.Unmarshal(file); err != nil {
-		fatalf("Failed to marshal header: %s", err)
-	}
-
-	// Rewind file offset to origin of file (offset is modified by
-	// marshalling the header)
-	file.Seek(0, os.SEEK_SET)
-
-	// Attempt to decrypt store
-	p := s.Header.Params
-	stream, mac := crypto.InitStreamParams(passphrase, s.Header.Salt[:],
-		int(p.LogN), int(p.R), int(p.P))
-	err = s.Decrypt(cipher.StreamReader{stream, file}, fi.Size(), mac)
-	if err != nil {
-		fatalf("Failed to decrypt store: %s", err)
-	}
-	return s
+	return
 }
 
 // Helper function for reading both passphrase and store.
-// Parameter dictates wheter access is read-only (i.e., passphrase needs to be
-// retained).
-func openStore(ro bool) (s *store.Store, p []byte) {
-	p = readPassphrase("Enter passphrase for '%s'", storeFile)
-	s = readStore(p)
-	if ro {
-		crypto.Clear(p)
+func openRwStore() (s *store.Store, passphrase []byte) {
+	for {
+		passphrase = term.ReadPassphrase("Enter passphrase for %q: ", storeFile)
+		s, err := readStore(passphrase)
+		if err == nil {
+			return s, passphrase
+		}
+		crypto.Clear(passphrase)
+		if err == crypto.ErrWrongPass {
+			fmt.Fprintln(os.Stderr, "Incorrect passphrase. Try again.")
+			continue
+		}
+		fatalf("Failed to open store: %s", err)
 	}
-	return
+}
+
+func openStore() *store.Store {
+	s, passphrase := openRwStore()
+	crypto.Clear(passphrase)
+	return s
 }
 
 // Name returns the command's name: the first word in the usage line.

@@ -2,30 +2,29 @@ package imprt
 
 import (
 	"fmt"
+	"github.com/tvdburgt/passman/import/keepass"
+	"github.com/tvdburgt/passman/import/keepass2"
+	"github.com/tvdburgt/passman/import/keepassx"
+	"github.com/tvdburgt/passman/import/util"
 	"github.com/tvdburgt/passman/store"
-	"strings"
+	"io"
 )
 
-var (
-	ImportGroups     = false
-	NormalizeEntries = false
-)
+type Settings util.ImportSettings
 
-// Resolves id collisions by appending a unique number
-func ResolveIdCollisions(s *store.Store, id string) string {
-	if _, ok := s.Entries[id]; !ok {
-		return id
-	}
-	for i := 0; ; i++ {
-		id := fmt.Sprintf("%s%d", id, i)
-		if _, ok := s.Entries[id]; !ok {
-			return id
-		}
-	}
-	return id
+type importFunc func(r io.Reader, settings *util.ImportSettings) (s *store.Store, err error)
+
+var importers = map[string]importFunc{
+	"keepass":  keepass.Import,
+	"keepass2": keepass2.Import,
+	"keepassx": keepassx.Import,
 }
 
-// Strips spaces from id and turns all characters lowercase
-func NormalizeId(id string) string {
-	return strings.Replace(strings.ToLower(id), " ", "-", -1)
+func ImportStore(r io.Reader, format string, settings *Settings) (s *store.Store, err error) {
+	if fn, ok := importers[format]; ok {
+		utilSettings := util.ImportSettings(*settings)
+		return fn(r, &utilSettings)
+	} else {
+		return nil, fmt.Errorf("no importer available for format '%s'", format)
+	}
 }

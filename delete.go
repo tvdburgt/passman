@@ -6,9 +6,9 @@ import (
 )
 
 var cmdDelete = &Command{
-	Run: runDelete,
+	Run:       runDelete,
 	UsageLine: "delete id",
-	Short: "display an individual entry",
+	Short:     "display an individual entry",
 	Long: `
 get displays the content of a single passman entry. The identifier must be an
 exact match. To search or display multiple entries, see passman list.
@@ -21,7 +21,7 @@ func runDelete(cmd *Command, args []string) {
 	}
 	id := args[0]
 
-	s, passphrase := openStore(true)
+	s, passphrase := openRwStore()
 	defer crypto.Clear(passphrase)
 
 	// Check existance before deleting

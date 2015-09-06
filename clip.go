@@ -62,6 +62,7 @@ func (fs *fieldSlice) Set(value string) error {
 }
 
 var currentMessage string
+
 func printMessage(s string, args ...interface{}) {
 	fmt.Print("\r", strings.Repeat(" ", len(currentMessage)+1), "\r")
 	fmt.Printf(s, args...)
@@ -88,7 +89,7 @@ func runClip(cmd *Command, args []string) {
 	}
 	id := args[0]
 
-	s, _ := openStore(false)
+	s := openStore()
 	e, ok := s.Entries[id]
 	if !ok {
 		fatalf("Entry %q does not exist.", id)

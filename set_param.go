@@ -1,9 +1,9 @@
 package main
 
 import (
-	"fmt"
-	"github.com/tvdburgt/passman/crypto"
-	"time"
+	// "fmt"
+	// "github.com/tvdburgt/passman/crypto"
+	// "time"
 )
 
 var cmdSetParam = &Command{
@@ -17,47 +17,47 @@ exact match. To search or display multiple entries, see passman list.
 }
 
 func runSetParam(cmd *Command, args []string) {
-	if len(args) < 2 {
-		// TODO: show usage
-		fatalf("passman set-param: missing identifier")
-	}
-	name, value := args[0], args[1]
+	// if len(args) < 2 {
+	// 	// TODO: show usage
+	// 	fatalf("passman set-param: missing identifier")
+	// }
+	// name, value := args[0], args[1]
 
-	s, passphrase := openStore(true)
-	defer crypto.Clear(passphrase)
+	// s, passphrase := openStore(true)
+	// defer crypto.Clear(passphrase)
 
-	p := &s.Header.Params
-	params := map[string]interface{}{
-		"n": &p.LogN,
-		"r": &p.R,
-		"p": &p.P,
-	}
+	// p := &s.Header.Params
+	// params := map[string]interface{}{
+	// 	"n": &p.LogN,
+	// 	"r": &p.R,
+	// 	"p": &p.P,
+	// }
 
-	field, ok := params[name]
-	if !ok {
-		fatalf("passman set-param: unknown parameter name '%s'", name)
-	}
+	// field, ok := params[name]
+	// if !ok {
+	// 	fatalf("passman set-param: unknown parameter name '%s'", name)
+	// }
 
-	// TODO: type conversion from string to byte/uint32?
-	field = value
-	_ = field // Go complains about unused variable
+	// // TODO: type conversion from string to byte/uint32?
+	// field = value
+	// _ = field // Go complains about unused variable
 
-	fmt.Println("Verifying parameter...")
+	// fmt.Println("Verifying parameter...")
 
-	// Test new parameter before finalizing the change
-	defer func() {
-		if err := recover(); err != nil {
-			fatalf("passman set-param:", err)
-		}
-	}()
-	before := time.Now()
-	crypto.DeriveKeys([]byte{}, []byte{}, int(p.LogN), int(p.R), int(p.P))
-	after := time.Now()
+	// // Test new parameter before finalizing the change
+	// defer func() {
+	// 	if err := recover(); err != nil {
+	// 		fatalf("passman set-param:", err)
+	// 	}
+	// }()
+	// before := time.Now()
+	// crypto.DeriveKeys([]byte{}, []byte{}, int(p.LogN), int(p.R), int(p.P))
+	// after := time.Now()
 
-	d := before.Sub(after)
-	fmt.Println("Key derivation took", d)
+	// d := before.Sub(after)
+	// fmt.Println("Key derivation took", d)
 
-	writeStore(s, passphrase)
+	// writeStore(s, passphrase)
 
-	fmt.Printf("Changed '%s' to '%s'\n", name, value)
+	// fmt.Printf("Changed '%s' to '%s'\n", name, value)
 }

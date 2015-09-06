@@ -1,0 +1,89 @@
+package crypt
+
+import (
+	"crypto"
+	"crypto/cipher"
+	"encoding/json"
+	"github.com/tvdburgt/passman/store"
+	"io"
+)
+
+// DeriveKeys returns a set of keys that is derived from the entropy in
+// passphrase and salt. Both resulting key lengths are 32 bytes (AES-256 key
+// length and SHA-256 hash size respectively).
+func deriveKeys(passphrase, salt []byte, logN, r, p int) (cipherKey, hmacKey []byte) {
+	key, err := scrypt.Key(passphrase, salt, 1<<uint(logN), r, p, KeySize+HashFn.Size())
+	if err != nil {
+		panic(err)
+	}
+	cipherKey, hmacKey = key[:KeySize], key[KeySize:]
+	return
+}
+
+func initCTRStream(key []byte) cipher.Stream {
+	// TODO: internal state of  block remains in memory?
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		panic(err) // KeySizeError
+	}
+	iv := make([]byte, block.BlockSize()) // IV is always {0, 0, ...}
+	return cipher.NewCTR(block, iv)
+}
+
+func initStream(key, salt []byte, params *s.ScryptParams) (cipher.Stream, hash.Hash) {
+	cipherKey, hmacKey := DeriveKeys(passphrase, salt, logN, r, p)
+	defer Clear(cipherKey)
+	defer Clear(hmacKey)
+	stream = initCTRStream(cipherKey)
+	mac = hmac.New(HashFn.New, hmacKey)
+	return
+}
+
+func WriteStore(w io.Writer, s *store.Store, passphrase []byte) (err error) {
+
+	stream, mac := initStream(passphrase, s.Header.Salt[:], s.Header.Params)
+
+	plainWriter := io.MultiWriter(sw.W, mac)
+	cipherWriter := io.MultiWriter(sw, mac)
+
+	// Write header (plaintext)
+	if err = s.Header.Marshal(plainWriter); err != nil {
+		return
+	}
+
+	// Write header HMAC (plaintext)
+	if _, err = plainWriter.Write(mac.Sum(nil)); err != nil {
+		return
+	}
+
+	// Write JSON-encoded entries (ciphertext)
+	enc := json.NewEncoder(cipherWriter)
+	if err = enc.Encode(s.Entries); err != nil {
+		return
+	}
+
+	// Write file HMAC (plaintext)
+	if _, err = plainWriter.Write(mac.Sum(nil)); err != nil {
+		return
+	}
+
+	return
+
+	// err = s.Header.Marshal(w)
+	// if err != nil {
+	// 	return
+	// }
+
+	// return nil
+}
+
+func ReadStore(r io.Reader, key []byte) (s *store.Store, e error) {
+	return nil, nil
+}
+
+// Clears sensitive data from memory (useful for plaintext passwords etc.)
+func Clear(secret []byte) {
+	for i := range secret {
+		secret[i] = 0
+	}
+}

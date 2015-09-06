@@ -1,0 +1,10 @@
+- Protect in-memory passman data (see ProtectedMemory in .NET)
+	- Encrypt data using embedded store key
+	- Prevent swapping and garbage-collection
+- Passman get format
+- Create SECURITY doc
+- Make scrypt params configurable
+- Cache passphrase
+- Shell completion for subcommands (perhaps tab-completion for entry ids)
+- Use $PAGER for 'passman list'
+- Play around with xdotool

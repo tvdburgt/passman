@@ -56,11 +56,11 @@ func (m metadata) Set(data string) (err error) {
 
 func runSet(cmd *Command, args []string) {
 	if len(args) < 1 {
-		fatalf("passman set: missing id")
+		cmd.Usage()
 	}
 	id := args[0]
 
-	s, passphrase := openStore(true)
+	s, passphrase := openRwStore()
 	defer crypto.Clear(passphrase)
 
 	// Fetch entry

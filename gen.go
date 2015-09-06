@@ -19,15 +19,16 @@ const (
 )
 
 const (
-	defaultMethod = methodAscii
-	defaultLen = 64
-	defaultDicewareLen = 6
+	defaultMethod       = methodAscii
+	defaultLen          = 64
+	defaultDicewareLen  = 6
+	defaultDicewareDict = "/usr/share/dict/words"
 )
 
 var cmdGen = &Command{
-	Run: runGen,
+	Run:       runGen,
 	UsageLine: "gen",
-	Short: "generates a password",
+	Short:     "generates a password",
 	Long: `
 long description
 
@@ -43,7 +44,6 @@ func runGen(cmd *Command, args []string) {
 		fatalf("passman gen: %s", err)
 	}
 }
-
 
 // Helper method for reading numbers from stdin; uses default value if
 // input is empty. An error is returned if Atoi can't parse input.
@@ -83,7 +83,7 @@ func readPassword() (password []byte, err error) {
 
 		switch method {
 		case methodManual:
-			return verifyPassphrase(), nil
+			return readVerifiedPassphrase(), nil
 		case methodAscii, methodHex, methodBase32, methodDiceware:
 			password, err := generatePassword(method)
 			switch {
@@ -129,7 +129,11 @@ func generatePassword(method passMethod) (password []byte, err error) {
 			password, err = passgen.Base32(n)
 			m = 32
 		case methodDiceware:
-			password, m, err = passgen.Diceware(n, " ")
+			// TODO: prompt for diceware dict location
+			dict, err := os.Open(defaultDicewareDict)
+			if err != nil {
+				password, m, err = passgen.Diceware(dict, n, " ")
+			}
 		}
 
 		if err != nil {
@@ -161,4 +165,3 @@ func generatePassword(method passMethod) (password []byte, err error) {
 		}
 	}
 }
-

@@ -18,7 +18,7 @@ Currently, only `go1.2` and greater is supported for the following systems:
 ### Creating a passman store
 
 `passman` stores the passwords and other related data in an encrypted file
-called "store". In order to create a store, simply type:
+called **store**. In order to create a store, simply type:
 
     $ passman init
     [enter passphrase]
@@ -29,13 +29,13 @@ You will first be prompted for passphrase. This passphrase will indirectly be
 used as a key to encrypt and decrypt your store. As you can see, the default
 store file is `$HOME/.pass_store`. An alternate file location can be enforced
 using the `$PASSMAN_STORE` environment variable or the `-file` or `-f`
-command-line flag (in increasing order of precedence). Defining the store file
-works in exactly the same way for all other store-related `passman` subcommands.
+command-line flag (in increasing order of precedence). The store file location
+can be specified similarly for the other `passman` subcommands.
 
 If you want to migrate from a different password manager, say KeePassX, you can
 use `passman import` to import entries from an exported XML file:
 
-    $ passman import -format keepassx ~/kpx.xml 
+    $ passman import -format keepassx /tmp/keepassx.xml 
     Imported 42 entries to '/home/tman/.pass_store'.
 
 ### Adding and modifying entries
@@ -54,7 +54,7 @@ Aside from name and password, arbitrary key-value entry data can be attached
 using the `-meta` flag:
 
     $ passman set -meta url=https://github.com/login \
-        meta description='My favorite coding site!' github
+        -meta description='My favorite coding site!' github
 
 ### Querying entries
 
@@ -74,12 +74,10 @@ The `passman list` command conveniently accepts a regex pattern argument, which
 can be used to group entries. For example, by using a directory-like identifier
 scheme, I can easily list all entries that start with a given subpath:
 
-```bash
-$ passman list ^news/
-news/hn
-news/reddit
-news/slashdot
-````
+    $ passman list ^news/
+    news/hn
+    news/reddit
+    news/slashdot
 
 [replace with actual list output]
 
@@ -112,7 +110,8 @@ field `name` and `password` for the following consecutive selection requests.
 ### Additional information
 
 The complete list of commands can viewed with `passman help`. Use `passman help
-<cmd>` for more information about a particular subcommand.  Technical
-information about the design and security can be found [here](SECURITY.md).
+<cmd>` for more information about a particular subcommand. If you are interested
+in `passman`'s security or want to help improve this program, please read the
+[technical documentation](SECURITY.md).
 
 [add license info]

@@ -3,12 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/tvdburgt/passman/crypto"
-	// TODO: merge import pkgs to single pkg
 	"github.com/tvdburgt/passman/import"
-	"github.com/tvdburgt/passman/import/keepass"
-	"github.com/tvdburgt/passman/import/keepass2"
-	"github.com/tvdburgt/passman/import/keepassx"
-	"github.com/tvdburgt/passman/store"
 	"os"
 )
 
@@ -17,20 +12,25 @@ var cmdImport = &Command{
 	Short:     "import passwords from an export file",
 	Long: `
 JSON-formatted, defaults to stdout.
+
+
+	-format [format]
+	The following formats are available:
+		- keepassx (XML export)
 	`,
 }
 
 var (
 	importFormat    = "passman"
-	importNormalize = &imprt.NormalizeEntries
-	importGroups    = &imprt.ImportGroups
+	importNormalize = false
+	importGroups    = false
 )
 
 func init() {
 	cmdImport.Run = runImport
 	cmdImport.Flag.StringVar(&importFormat, "format", importFormat, "")
-	cmdImport.Flag.BoolVar(importNormalize, "normalize", *importNormalize, "")
-	cmdImport.Flag.BoolVar(importGroups, "groups", *importGroups, "")
+	cmdImport.Flag.BoolVar(&importNormalize, "normalize", importNormalize, "")
+	cmdImport.Flag.BoolVar(&importGroups, "groups", importGroups, "")
 	addFileFlag(cmdImport)
 }
 
@@ -39,41 +39,30 @@ func runImport(cmd *Command, args []string) {
 		cmd.Usage()
 	}
 	if _, err := os.Stat(storeFile); err == nil {
-		fatalf("Import target file '%s' already exists", storeFile)
+		fatalf("Output file '%s' already exists", storeFile)
 	}
 
 	filename := args[0]
 	file, err := os.Open(filename)
 	if err != nil {
-		fatalf("Failed to open import source file: %s", err)
+		fatalf("Failed to open import file: %s", err)
 	}
 	defer file.Close()
 
-	s, err := importStore(file)
+	settings := &imprt.Settings{
+		NameGroups:       importGroups,
+		NormalizeEntries: importNormalize,
+	}
+
+	s, err := imprt.ImportStore(file, importFormat, settings)
+
 	if err != nil {
 		fatalf("Import failed: %s", err)
 	}
 
-	passphrase := verifyPassphrase()
+	passphrase := readVerifiedPassphrase()
 	defer crypto.Clear(passphrase)
 	writeStore(s, passphrase)
 	fmt.Printf("Imported %d entries to '%s'.\n",
 		len(s.Entries), storeFile)
-}
-
-func importStore(file *os.File) (s *store.Store, err error) {
-	switch importFormat {
-	case "passman":
-		s = store.NewStore(store.NewHeader())
-		err = s.Import(file)
-	case "keepass":
-		s, err = keepass.ImportXml(file)
-	case "keepass2":
-		s, err = keepass2.ImportXml(file)
-	case "keepassx":
-		s, err = keepassx.ImportXml(file)
-	default:
-		err = fmt.Errorf("unknown format: '%s'", importFormat)
-	}
-	return
 }
